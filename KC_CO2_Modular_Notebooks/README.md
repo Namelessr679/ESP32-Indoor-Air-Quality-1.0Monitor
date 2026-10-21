@@ -15,15 +15,7 @@ You may run model notebooks in any order after preparation. They share the same 
 - Combined results → `per_source_results.csv`, `pooled_results.csv`, `source_weighted_results.csv`, `persistence_comparison.csv`, `tree_methods_by_horizon.png`.
 - Section 2 of `00_Data_Preparation.ipynb` contains the editable source for every shared function and setting. Its `%%writefile` cell generates `kc_common.py` on Drive, and the next cell imports it. Model notebooks import that generated helper. The ZIP does not need a separately maintained Python helper.
 
-## Which original is being reproduced?
-`reference/KC_CO2_Four_Model_Comparison_Colab.ipynb` is the earlier all-source four-model comparison. Its cleaning, minute sampling, feature definitions, manifest splits, source weights, trial caps, tree settings, neural architecture and early stopping are retained.
-`reference/Attached_Final_Session_Split.ipynb` is the uploaded style reference. It is a different experiment: only direct 10-minute trees, a shuffled session split, different features/search ranges, and train-plus-validation final refitting. Those methodological differences are NOT silently imported into the earlier all-source comparison. The original reference notebook also contains a file-deletion cell; it is archival, not part of the run instructions.
 
-### Deliberate additions
-- GRU and LSTM at 5 minutes (the earlier notebook ran them at 10 minutes only).
-- Per-row prediction exports, source-weighted RMSE and R², and saved handoffs between notebooks.
-- Overall permutation importance for both tree models, using the earlier validation-weighted method (previously plotted for XGBoost only).
-- Test display label shortened to Test, with its previously examined status explained.
 
 ### Important reproduction details
 - 50% Local, 25% UPC and 25% Slovenia weights affect BOTH training losses and trial validation MAE in the original comparison. Ordinary ALL metrics are unweighted by source.
@@ -38,5 +30,4 @@ You may run model notebooks in any order after preparation. They share the same 
 
 No completed training results are fabricated or bundled. See `VALIDATION.md` for checks performed on this code package.
 
-## Updating an existing GitHub/Drive setup
-Replace the six numbered notebooks and this README with the updated copies. The old standalone `kc_common.py` in GitHub can be deleted: notebook 00 is now the source of truth. The old Drive copy is overwritten when section 2 runs. Start with notebook 00, then rerun the four model notebooks and notebook 05. Use a new RUN_DIR in all notebooks to preserve previous experiment outputs.
+
