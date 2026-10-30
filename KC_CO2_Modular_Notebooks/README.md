@@ -47,7 +47,7 @@ The experiment uses a single collection of locally recorded sessions. Only CSV f
 
 | Column | Meaning |
 | --- | --- |
-| `elapsed_minutes` | Elapsed minutes from the start of the recording (for example, 0, 0.5, 1) |
+| `elapsed_seconds` | Elapsed seconds from the start of the recording (for example, 0, 30, 60) |
 | `co2` | CO₂ concentration in ppm |
 | `temp` | Temperature reading |
 | `humidity` | Relative humidity reading |
@@ -103,4 +103,4 @@ Neural result rows must use matching preparation, forecast approach, horizon, sp
 
 Check notebook structure, Python syntax, imports and producer/consumer compatibility. Verify direct and recursive logic without future-data leakage, reject mismatched preparation identities, and confirm source access is read-only. Record which checks were actually run; syntax checks alone do not establish that Colab authentication or a full training run succeeds. Training and experiment runs require an explicit request.
 
-CSV `elapsed_minutes` values are numeric elapsed minutes. Only `elapsed_minutes`, `co2`, `temp` and `humidity` are read as raw inputs; other CSV columns are ignored. Room is not used or encoded. Internally they are represented relative to 1970-01-01 solely for time-window calculations; this is not the recording date. `hour_of_day` is excluded because no clock time is supplied. The existing `session_elapsed_minutes` feature remains measured in minutes from the first usable reading. Saved prediction times use the internal time index.
+CSV `elapsed_seconds` values are numeric elapsed seconds. Only `elapsed_seconds`, `co2`, `temp` and `humidity` are read as raw inputs; other CSV columns are ignored. Room is not used or encoded. Internally they are represented relative to 1970-01-01 solely for time-window calculations; this is not the recording date. `hour_of_day` is excluded because no clock time is supplied. The existing `session_elapsed_minutes` feature remains measured in minutes from the first usable reading. Saved prediction times use the internal time index.

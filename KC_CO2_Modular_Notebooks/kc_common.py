@@ -83,16 +83,16 @@ def read_session_csv(service, item):
 
 def clean_session(session, session_id, source_name):
     """Validate and clean one CSV, preserving timestamp order and first duplicates."""
-    required = ["elapsed_minutes", "co2", "temp", "humidity"]
+    required = ["elapsed_seconds", "co2", "temp", "humidity"]
     missing = [column for column in required if column not in session.columns]
     if missing:
-        raise KeyError(f"Missing columns {missing} in Drive CSV {source_name!r} (ID {session_id}). Filenames are unrestricted; required columns are elapsed_minutes, co2, temp, humidity.")
+        raise KeyError(f"Missing columns {missing} in Drive CSV {source_name!r} (ID {session_id}). Filenames are unrestricted; required columns are elapsed_seconds, co2, temp, humidity.")
 
     session = session[required].copy()
     # A fixed internal origin keeps timestamp-based windows unchanged.
     # This is an elapsed-time index, not the recording's calendar date.
-    elapsed_minutes = pd.to_numeric(session["elapsed_minutes"], errors="raise")
-    session["time"] = pd.Timestamp("1970-01-01") + pd.to_timedelta(elapsed_minutes, unit="m")
+    elapsed_seconds = pd.to_numeric(session["elapsed_seconds"], errors="raise")
+    session["time"] = pd.Timestamp("1970-01-01") + pd.to_timedelta(elapsed_seconds, unit="s")
     for column in ["co2", "temp", "humidity"]:
         session[column] = pd.to_numeric(session[column], errors="coerce")
 
