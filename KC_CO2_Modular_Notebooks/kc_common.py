@@ -11,7 +11,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 SCHEMA_VERSION = 2
 HORIZONS = (5, 10)
@@ -35,9 +35,8 @@ NUMERIC_FEATURES = [
     "Temp_mean_5min", "Humidity_mean_5min",
     "Temp_slope_5min", "Humidity_slope_5min",
     "initial_CO2", "CO2_change_from_start", "session_elapsed_minutes",
-    "hour_of_day",
 ]
-CATEGORICAL_FEATURES = ["room"]
+CATEGORICAL_FEATURES = []
 MODEL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 CORE_FEATURES = NUMERIC_FEATURES.copy()
 
@@ -84,22 +83,23 @@ def read_session_csv(service, item):
 
 def clean_session(session, session_id, source_name):
     """Validate and clean one CSV, preserving timestamp order and first duplicates."""
-    required = ["time", "co2", "temp", "humidity"]
+    required = ["elapsed_minutes", "co2", "temp", "humidity"]
     missing = [column for column in required if column not in session.columns]
     if missing:
-        raise KeyError(f"Missing columns {missing} in Drive CSV {source_name!r} (ID {session_id}). Filenames are unrestricted; required columns are time, co2, temp, humidity.")
+        raise KeyError(f"Missing columns {missing} in Drive CSV {source_name!r} (ID {session_id}). Filenames are unrestricted; required columns are elapsed_minutes, co2, temp, humidity.")
 
-    session = session.copy()
-    session["time"] = pd.to_datetime(session["time"])
+    session = session[required].copy()
+    # A fixed internal origin keeps timestamp-based windows unchanged.
+    # This is an elapsed-time index, not the recording's calendar date.
+    elapsed_minutes = pd.to_numeric(session["elapsed_minutes"], errors="raise")
+    session["time"] = pd.Timestamp("1970-01-01") + pd.to_timedelta(elapsed_minutes, unit="m")
     for column in ["co2", "temp", "humidity"]:
         session[column] = pd.to_numeric(session[column], errors="coerce")
-    if "room" not in session.columns:
-        session["room"] = "Unknown"
 
     # Deduplicate before dropping missing readings to preserve the CSV cleaning policy.
     session = session.sort_values("time")
     session = session.drop_duplicates(subset=["time"], keep="first")
-    session = session.dropna(subset=required).reset_index(drop=True)
+    session = session.dropna(subset=["time", "co2", "temp", "humidity"]).reset_index(drop=True)
     session["session_id"] = session_id
     return session
 
@@ -209,9 +209,6 @@ def engineer_features(session):
     session["CO2_change_from_start"] = session["CO2_now"] - session["initial_CO2"]
     session["session_elapsed_minutes"] = (session["time"] - session["time"].iloc[0]).dt.total_seconds() / 60.0
 
-    # Time of day: 10:30 AM becomes 10.5.
-    session["hour_of_day"] = session["time"].dt.hour + session["time"].dt.minute / 60.0
-
     return session
 
 
@@ -257,7 +254,7 @@ def rows_for_sessions(frame, session_ids):
     )
 
 def make_preprocessor(scale_numeric=False):
-    """Prepare missing values, optional scaling, and room categories."""
+    """Prepare numeric features with imputation and optional scaling."""
     # Create a list of processing steps for the numeric features starting with a median imputer
     # 'keep_empty_features=True' prevents errors if any numeric columns are entirely empty/NaN
     numeric_steps = [("imputer", SimpleImputer(strategy="median", keep_empty_features=True))]
@@ -266,20 +263,8 @@ def make_preprocessor(scale_numeric=False):
     if scale_numeric:
         numeric_steps.append(("scaler", StandardScaler()))
 
-    # Create a processing pipeline for the categorical features (like room names)
-    categorical_pipeline = Pipeline([
-        # Replace missing categorical values with the constant string "Unknown"
-        ("imputer", SimpleImputer(strategy="constant", fill_value="Unknown", keep_empty_features=True)),
-        # Convert categorical strings into binary indicator columns (one-hot encoding)
-        # 'handle_unknown="ignore"' maps unseen test categories to all zeros instead of crashing
-        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-    ])
-
-    # Bundle both numeric and categorical steps into a ColumnTransformer
-    # 'verbose_feature_names_out=False' keeps the output column names clean and easy to read
     return ColumnTransformer([
         ("numeric", Pipeline(numeric_steps), NUMERIC_FEATURES),
-        ("categorical", categorical_pipeline, CATEGORICAL_FEATURES),
     ], verbose_feature_names_out=False)
 
 def metrics_from_future_co2(actual, predicted):
@@ -309,7 +294,7 @@ def forecast_future_co2(model, preprocessor, frame, horizon, approach, history_b
         raise ValueError("Unsupported forecast setup.")
     predictions = []
     # Feature calculations use session timestamps. Future temperature,
-    # humidity and room are held at their latest observed values.
+    # humidity are held at their latest observed values.
     # Each synthetic step updates CO2 lags, slopes, rolling statistics and context.
     for row in frame.itertuples(index=False):
         session = history_by_session[row.session_id]
