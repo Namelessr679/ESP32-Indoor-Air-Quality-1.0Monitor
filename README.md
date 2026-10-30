@@ -2,6 +2,23 @@
 
 An ESP32-based edge device that measures indoor CO₂, temperature, and humidity in real time using the **Sensirion SCD41** sensor, displays readings on a **16×2 LCD**, and serves live data over **Wi-Fi** via a built-in HTTP web server.
 
+
+## CO₂ forecasting from local sessions
+
+The forecasting experiment uses only locally recorded classroom sensor sessions in one [shared Google Drive folder](https://drive.google.com/drive/folders/11FwkaIH_LhHWwaJsVcrCbBWwM1H32y-G). Each CSV is one session. Folder and CSV filenames are unrestricted; only CSVs directly inside that folder are read.
+
+Required columns are `time`, `co2`, `temp` and `humidity`; `room` is optional. Occupancy is not a model input. The source folder is read-only, while each runner saves preparation and experiment results to their own Drive.
+
+The notebooks and `kc_common.py` are in [`KC_CO2_Modular_Notebooks`](KC_CO2_Modular_Notebooks/README.md). Run **00 → 01 → 02 → 05** for preparation, Random Forest, XGBoost and combined reporting. GRU and LSTM have separate entry points that load the same preparation.
+
+Sessions use a seeded whole-session 60/20/20 split. The notebooks automatically run 5-minute direct, 5-minute recursive, 10-minute direct and 10-minute recursive forecasts. Tree models use 30 Optuna trials per setup (120 per model, 240 total). Combined reporting prints validation/test MAE, RMSE and R² for every setup. Each setup shares the same session splits and eligible prediction rows. Model selection uses validation MAE; final tree fits use training plus validation before test evaluation. No forecast-choice variable is needed.
+
+### Preserve the project structure
+
+Keep notebook filenames, numbering, responsibilities and saved-file interfaces unchanged. Shared functions belong in `kc_common.py`; model-specific work belongs in the corresponding notebook. Changes to features, targets, splits, tuning settings, evaluation rules or data sources require the project owner's explicit approval. Do not reorganize unrelated files or commit datasets, fitted models or experiment outputs. Do not commit or push without explicit instruction.
+
+Read the [notebook README](KC_CO2_Modular_Notebooks/README.md) for the complete contribution rules, dataset contract, run instructions and handoff schemas.
+
 ---
 
 ## Features
