@@ -19,7 +19,7 @@ from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 HELPER_DIR = ROOT / "KC_CO2_Modular_Notebooks"
 sys.path.insert(0, str(HELPER_DIR)) if str(HELPER_DIR) not in sys.path else None
 
@@ -32,6 +32,11 @@ N_TRIALS = 30
 MAX_EPOCHS = 16
 PATIENCE = 3
 RESULT_KEYS = ["Horizon_min", "Approach", "Model", "Split"]
+PREPARATION_IDENTITY_KEYS = [
+    "schema_version", "run_id", "horizons", "approaches", "data_folder_id",
+    "features", "train_ids", "validation_ids", "test_ids", "seed", "trials",
+    "helper_sha256",
+]
 
 
 class RecurrentRegressor(nn.Module):
@@ -74,12 +79,22 @@ def _sequence(history: pd.DataFrame, origin: pd.Timestamp) -> np.ndarray | None:
     return matched[SENSOR_FEATURES].to_numpy(dtype=np.float32)
 
 
-def _arrays(frame: pd.DataFrame, histories: dict[Any, pd.DataFrame]):
+def _validate_origin_keys(prepared_frame: pd.DataFrame, evaluated_frame: pd.DataFrame) -> None:
+    expected = list(prepared_frame[["session_id", "time"]].itertuples(index=False, name=None))
+    actual = list(evaluated_frame[["session_id", "time"]].itertuples(index=False, name=None))
+    if actual != expected:
+        raise ValueError("Neural predictions do not preserve the prepared evaluation origins")
+
+
+def _arrays(frame: pd.DataFrame, histories: dict[Any, pd.DataFrame], partition_name: str):
     sequences, static, targets, rows = [], [], [], []
     for row in frame.itertuples(index=False):
         sequence = _sequence(histories[row.session_id], row.time)
         if sequence is None:
-            continue
+            raise ValueError(
+                f"Missing 11-point sequence for {partition_name} origin "
+                f"({row.session_id}, {row.time}); rerun preparation with compatible histories"
+            )
         values = row._asdict()
         sequences.append(sequence)
         static.append([values[name] for name in MODEL_FEATURES])
@@ -87,7 +102,9 @@ def _arrays(frame: pd.DataFrame, histories: dict[Any, pd.DataFrame]):
         rows.append(values)
     if not sequences:
         raise ValueError("No usable neural sequence origins")
-    return np.asarray(sequences, np.float32), np.asarray(static, np.float32), np.asarray(targets, np.float32), pd.DataFrame(rows)
+    evaluated = pd.DataFrame(rows)
+    _validate_origin_keys(frame, evaluated)
+    return np.asarray(sequences, np.float32), np.asarray(static, np.float32), np.asarray(targets, np.float32), evaluated
 
 
 def _scalers(sequences: np.ndarray, static: np.ndarray):
@@ -168,6 +185,18 @@ def _check_output(path: Path) -> None:
     raise ValueError("Generated artifacts must be stored outside the Git checkout")
 
 
+def _validate_preparation_identity(saved_metadata: dict[str, Any], current_metadata: dict[str, Any]) -> None:
+    mismatches = [
+        key for key in PREPARATION_IDENTITY_KEYS
+        if saved_metadata.get(key) != current_metadata.get(key)
+    ]
+    if mismatches:
+        raise ValueError(
+            "Existing direct results use a different preparation "
+            f"({', '.join(mismatches)}). Rerun direct forecasting before recursive forecasting."
+        )
+
+
 def _recursive_prediction(model, sequence_scaler, static_scaler, history, origin, horizon):
     synthetic = history.loc[history.time <= origin.time].copy()
     current = float(origin.CO2_now)
@@ -210,7 +239,9 @@ def _run(kind: str, run_dir: Path, output_dir: Path | None, approach: str, trial
     rows, predictions, artifacts = [], [], {}
     for horizon in (5, 10):
         config = prepared["configurations"][f"{horizon}min_{approach}"]
-        train, validation, test = _arrays(config["train_df"], histories), _arrays(config["validation_df"], histories), _arrays(config["test_df"], histories)
+        train = _arrays(config["train_df"], histories, "train")
+        validation = _arrays(config["validation_df"], histories, "validation")
+        test = _arrays(config["test_df"], histories, "test")
         seq_scaler, static_scaler = _scalers(train[0], train[1])
         train_x, train_s = _transform(train[0], train[1], seq_scaler, static_scaler)
         val_x, val_s = _transform(validation[0], validation[1], seq_scaler, static_scaler)
@@ -229,7 +260,7 @@ def _run(kind: str, run_dir: Path, output_dir: Path | None, approach: str, trial
         params["epochs"] = int(study.best_trial.user_attrs["best_epoch"])
         validation_model, _, _ = _train(kind, train_x, train_s, train[2], val_x, val_s, validation[2], params, False)
         final_frame = pd.concat([config["train_df"], config["validation_df"]], ignore_index=True)
-        final = _arrays(final_frame, histories)
+        final = _arrays(final_frame, histories, "final training")
         final_seq_scaler, final_static_scaler = _scalers(final[0], final[1])
         final_x, final_s = _transform(final[0], final[1], final_seq_scaler, final_static_scaler)
         final_model, _, _ = _train(kind, final_x, final_s, final[2], None, None, None, params, False)
@@ -254,6 +285,7 @@ def _run(kind: str, run_dir: Path, output_dir: Path | None, approach: str, trial
     path = output_dir / f"{kind.lower()}_results.joblib"
     if approach == "recursive" and path.is_file():
         old = joblib.load(path)
+        _validate_preparation_identity(old.get("metadata", {}), metadata)
         old_metrics = old["metrics"].loc[old["metrics"].Approach.eq("direct")]
         old_predictions = old["predictions"].loc[old["predictions"].Approach.eq("direct")]
         result["metrics"] = pd.concat([old_metrics, result["metrics"]], ignore_index=True)
