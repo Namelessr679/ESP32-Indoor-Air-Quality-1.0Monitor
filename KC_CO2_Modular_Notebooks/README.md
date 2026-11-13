@@ -11,10 +11,11 @@ This project predicts classroom CO₂ five and ten minutes ahead using only loca
 | `02_XGBoost.ipynb` | Tune XGBoost, compare tree models on validation, freeze selection, perform final refits and export results. |
 | `03_GRU.ipynb` | GRU entry point using the common preparation handoff. |
 | `04_LSTM.ipynb` | LSTM entry point using the common preparation handoff. |
-| `05_Combined_Results.ipynb` | Load model results, display comparisons and plots, and export the comparison table. |
+| `05_Baselines.ipynb` | Evaluate Persistence and Linear Regression and save metrics and predictions. |
+| `06_Combined_Results.ipynb` | Load model results, display comparisons and plots, and export the comparison table. |
 | `kc_common.py` | Shared settings, features, splits, preprocessing, forecast rollout and metric functions. |
 
-GRU and LSTM contain setup, preparation loading and empty model cells. Their score entries stay blank until results exist; missing results must never be represented as zero scores.
+GRU and LSTM contain their model implementations, training, forecasting and artifact export directly in their notebooks. Their score entries stay blank until results exist; missing results must never be represented as zero scores.
 
 ## Contribution rules
 
@@ -33,10 +34,10 @@ GRU and LSTM contain setup, preparation loading and empty model cells. Their sco
 
 ## Run in Google Colab
 
-1. Use the notebooks and `kc_common.py` from the same repository revision. The setup imports a local helper when available; otherwise it downloads the helper from GitHub at `HELPER_REF`. Set a commit SHA for reproducible code versions. A distributed folder or ZIP must include the helper. In Colab, a local helper belongs in the Files pane beside the notebook runtime's working files.
+1. Use the notebooks and `kc_common.py` from the same repository revision. The setup imports a local helper when available; otherwise it downloads the helper from GitHub at `HELPER_REF` or `REPO_REF`. Set a commit SHA for reproducible code versions. A distributed folder or ZIP must include the helper. In Colab, a local helper belongs in the Files pane beside the notebook runtime's working files.
 2. Sign into a Google account with Viewer access to the [session data folder](https://drive.google.com/drive/folders/11FwkaIH_LhHWwaJsVcrCbBWwM1H32y-G).
 3. Use the same `PROJECT` and experiment output location throughout the notebooks. The notebooks automatically process all four horizon/approach combinations; no forecast selector is required.
-4. Run `00 → 01 → 02 → 05`. Model notebooks load preparation; reporting loads saved model results. Notebooks 03 and 04 use the same preparation interface.
+4. Run `00 → 01 → 02 → 03 → 04 → 05 → 06`. Model notebooks load preparation; reporting loads saved model results. Notebooks 03, 04 and 05 use the same preparation interface.
 5. Rerun the sequence after changing data, shared settings or code. Preparation identities must match across saved model results.
 
 The authentication and Drive-mounting cells require Colab. A repository checkout provides the helper for VS Code, but local execution requires configuring Google authentication and storage paths.
@@ -61,7 +62,7 @@ Subfolders, Google Sheets and Drive shortcuts are not followed. Session identiti
 - Forecast setups: **5-minute direct, 5-minute recursive, 10-minute direct and 10-minute recursive**, run automatically. Direct forecasts learn the change at the requested horizon; recursive forecasts learn one-minute changes and roll forward five or ten steps.
 - Every setup uses identical eligible forecast origins and the same session assignments. Origins require observed targets at one, five and ten minutes, along with valid feature history. This makes horizon and approach comparisons use matching rows.
 - Recursive forecasts update predicted CO₂ history, lags, slopes and rolling statistics. Temperature and humidity remain fixed at their latest observed values.
-- Tuning: **30 Optuna trials per model per setup**: 120 for RF and 120 for XGBoost, **240 total**. Parameter ranges are defined in the model notebooks; the objective is unweighted validation MAE.
+- Tuning: **30 Optuna trials per model per setup**: 120 for RF and 120 for XGBoost, **240 tree trials total**; GRU and LSTM each also run 120 trials. Parameter ranges are defined in the model notebooks; the objective is unweighted validation MAE.
 - Evaluation: MAE and RMSE in ppm, plus R². Validation uses training-only fits. Final tree models refit on training plus validation before test evaluation.
 - RF/XGBoost model selection is frozen separately for each of the four setups using validation MAE before any test scoring. Combined reporting preserves those selections.
 - Final combined tables explicitly print **MAE, RMSE and R2** for validation and test, with horizon and approach labels. The exported CSV contains the same values; `R2` denotes R².
@@ -70,9 +71,9 @@ Subfolders, Google Sheets and Drive shortcuts are not followed. Session identiti
 
 Input features and observed training targets are built separately; recursive inference only rebuilds input features. All setups share one training-fitted tree preprocessor and cached input matrices. Final refits share a separate preprocessor fitted on training plus validation. Configuration data frames and target arrays remain specific to each horizon and approach. Treat the shared preprocessor and matrices as read-only; do not refit or mutate them in model cells.
 
-RF and XGBoost use a shared configuration runner while keeping their search spaces in their own notebooks. Each notebook retains its standalone helper bootstrap and explicit Colab Drive mount. GRU and LSTM remain preparation-loading scaffolds.
+RF and XGBoost use a shared configuration runner while keeping their search spaces in their own notebooks. Each notebook retains its standalone helper bootstrap and explicit Colab Drive mount. GRU, LSTM and baselines run inside their numbered notebooks.
 
-Any helper edit changes its fingerprint, including refactoring or comment changes. Rerun 00 → 01 → 02 → 05 using the matching helper after edits; existing preparation is deliberately rejected.
+Any helper edit changes its fingerprint, including refactoring or comment changes. Rerun 00 → 01 → 02 → 03 → 04 → 05 → 06 using the matching helper after edits; existing preparation is deliberately rejected.
 
 ## Saved-file interfaces
 
@@ -82,12 +83,15 @@ Each runner uses their own Drive. All four setups belong to one experiment folde
 
 | Artifact | Producer | Consumers |
 | --- | --- | --- |
-| `tree_session_prepared.joblib` | 00 | 01, 02, 03, 04 |
-| `preparation_metadata.joblib` | 00 | 02, 05 |
+| `tree_session_prepared.joblib` | 00 | 01, 02, 03, 04, 05 |
+| `preparation_metadata.joblib` | 00 | 02, 06 |
 | `rf_validation.joblib` | 01 | 02 |
 | `xgb_validation.joblib` | 02 | Validation analysis |
-| `tree_results.joblib` | 02 | 05 |
-| `combined_results.csv` | 05 | Analysis and reporting |
+| `tree_results.joblib` | 02 | 06 |
+| `GRU/gru_results.joblib` | 03 | 06 |
+| `LSTM/lstm_results.joblib` | 04 | 06 |
+| `baseline_results/baseline_results.joblib` | 05 | 06 |
+| `combined_results.csv` | 06 | Analysis and reporting |
 
 Preparation contains `metadata`, `configurations` and `history_by_session`. Configuration keys are `5min_direct`, `5min_recursive`, `10min_direct` and `10min_recursive`. Each configuration contains its `horizon`, `approach`, `train_df`, `validation_df`, `test_df`, training-fitted `tree_preprocessor`, `X_train_tree`, `X_validation_tree` and `y_train`.
 
