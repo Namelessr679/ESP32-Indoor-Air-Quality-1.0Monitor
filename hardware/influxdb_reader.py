@@ -64,7 +64,7 @@ CO2_FIELD = os.getenv("INFLUXDB_CO2_FIELD", "co2")
 TEMPERATURE_FIELD = os.getenv("INFLUXDB_TEMPERATURE_FIELD", "temp_c")
 HUMIDITY_FIELD = os.getenv("INFLUXDB_HUMIDITY_FIELD", "rh")
 
-# Maximum acceptable age of a reading, in seconds
+# Maximum limit for age of a reading, in seconds
 DEFAULT_MAX_AGE_SECONDS = 60
 
 
@@ -112,7 +112,7 @@ def get_influxdb_client() -> InfluxDBClient3:
 
 def get_latest_reading() -> dict[str, Any] | None:
     """
-    Retrieve the most recent sensor reading from InfluxDB.
+    Get the most recent sensor reading from InfluxDB.
 
     Returns:
         dict: Latest sensor reading containing timestamp,
@@ -159,7 +159,7 @@ def get_historical_readings(
     minutes: int = 30
 ) -> pd.DataFrame:
     """
-    Retrieve sensor readings from a configurable time window.
+    Get the sensor readings from a configurable time window.
 
     Args:
         minutes: Number of minutes of historical data to retrieve.
@@ -207,12 +207,12 @@ def validate_readings(
     max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS
 ) -> pd.DataFrame:
     """
-    Validate and clean sensor readings.
+    Check and clean sensor readings.
 
     Checks:
         - Required columns are present.
         - Timestamps are valid.
-        - Sensor values are numeric and within expected ranges.
+        - Sensor values are numeric and within the expected ranges.
         - Duplicate timestamps are removed.
         - Stale readings are identified.
 
