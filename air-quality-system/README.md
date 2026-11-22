@@ -25,6 +25,22 @@ its configured path). HW-02 must confirm the actual artifact schema, preprocessi
 sampling cadence, history length, horizon and exact dependency versions. Add those
 dependencies to requirements.txt. There is no model retraining in this launcher.
 
+## Why these files exist
+
+`main.py` contains both the pipeline runner and the shared dashboard controller.
+The controller lazily creates one runner, serializes creation across browser tabs,
+provides snapshots, and requests shutdown on normal process exit. It is an internal
+Python object, not an HTTP API. Keeping it in an imported module preserves it across
+Streamlit dashboard reruns without creating one runner per tab.
+
+`pipeline/__init__.py` marks the pipeline as a regular Python package and defines
+`WaitingForData`, the shared exception used by HW-01/HW-02 and the runner. Python
+can support packages without this file, but retaining this small file keeps the
+shared signal independent of the launcher and avoids an extra exceptions module.
+
+The tracked [`models/`](models/README.md) folder is ready for your local
+`co2_model.joblib`. The default config already points to that exact location.
+
 ## Initial computer setup
 
 1. Install Python 3.10+ with the Windows Python launcher (`py`).

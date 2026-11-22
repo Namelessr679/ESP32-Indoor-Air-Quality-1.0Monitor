@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
-from dashboard_runtime import DashboardRuntime, runtime
+from main import DashboardRuntime, runtime
 
 
 class DashboardTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_concurrent_tabs_create_only_one_runner(self):
         shared = DashboardRuntime()
-        with patch("dashboard_runtime.load_config", return_value={}), patch("dashboard_runtime.Runner") as factory:
+        with patch("main.load_config", return_value={}), patch("main.Runner") as factory:
             with ThreadPoolExecutor(max_workers=4) as pool:
                 list(pool.map(shared.command, ["check"] * 8))
             factory.assert_called_once()

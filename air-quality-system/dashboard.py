@@ -1,8 +1,7 @@
 """Streamlit browser dashboard; the worker owns all sensor and fan IO."""
 import streamlit as st
 
-from dashboard_runtime import runtime
-from main import pending_tickets
+from main import pending_tickets, runtime
 
 
 def send_command(command):
