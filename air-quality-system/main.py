@@ -1,4 +1,4 @@
-"""Single-worker desktop launcher. HW-01/02/03 remain unimplemented."""
+"""Single-worker pipeline and Streamlit launcher. HW-01/02/03 remain unimplemented."""
 import copy
 import math
 from pathlib import Path
@@ -209,8 +209,13 @@ class Runner:
 
 
 def main():
-    from dashboard import run_dashboard
-    run_dashboard()
+    import os
+    import sys
+    os.execv(sys.executable, [sys.executable, "-m", "streamlit", "run",
+                             str(ROOT / "dashboard.py"),
+                             "--server.address=127.0.0.1", "--server.port=8501",
+                             "--server.fileWatcherType=none",
+                             "--browser.gatherUsageStats=false"])
 
 
 if __name__ == "__main__":

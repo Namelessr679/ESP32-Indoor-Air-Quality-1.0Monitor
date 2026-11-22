@@ -1,6 +1,6 @@
 # Shared air-quality launcher
 
-Desktop launcher and ESP32 fan integration. The three HW tickets are intentionally
+Streamlit browser dashboard, launcher and ESP32 fan integration. The three HW tickets are intentionally
 **not implemented**. No fitted model or invented prediction/recommendation is
 included. Existing root firmware and research notebooks are unchanged.
 
@@ -27,17 +27,21 @@ dependencies to requirements.txt. There is no model retraining in this launcher.
 
 ## Initial computer setup
 
-1. Install Python 3.10+ with Tkinter and the Windows Python launcher (`py`).
+1. Install Python 3.10+ with the Windows Python launcher (`py`).
 2. Double-click `launch.bat`. First run creates a virtual environment, installs
-   requirements (internet needed once), copies the example config, and opens the UI.
+   requirements, copies the example config, and starts Streamlit. Subsequent launches
+   also check dependencies so existing installations receive the dashboard upgrade.
+   Open http://localhost:8501 if the browser does not open automatically.
 3. Edit `config.yaml`: ESP32 URL and command token, InfluxDB settings, model location.
    Use a command token at least 16 characters long matching `secrets.h`.
 4. Close/reopen the app after changing configuration. It loads configuration on
    the first control action, and reloads it on a new app session.
 
 For macOS/Linux, create a venv, install requirements, copy config.example.yaml to
-config.yaml, and run `python main.py` inside this directory. Install your OS's
-Tkinter package if it is not included with Python.
+config.yaml, and run `python main.py` inside this directory. The launcher binds
+Streamlit to 127.0.0.1:8501 and disables file watching to prevent hot-reload workers.
+For direct use: `python -m streamlit run dashboard.py --server.address=127.0.0.1
+--server.port=8501 --server.fileWatcherType=none` (on one line).
 
 The launcher does not install/start InfluxDB or the existing sensor-to-database
 collector. Keep those services running using your existing setup. HW-01 reads the
@@ -93,9 +97,11 @@ Power the prewired ESP32/fan, ensure storage/collector are running, double-click
 launch.bat, then press Start / Auto. Until the three tickets are connected, Auto
 reports the missing modules; manual controls remain usable. Start is idempotent
 and one worker serializes all IO. Manual ON overrides Auto; Start returns to Auto.
-Stop/Manual OFF/closing request OFF. If OFF cannot be acknowledged, the UI reports
-unknown output and the firmware lease handles loss of commands. Closing waits up
-to six seconds, then warns if a worker is blocked. A failed/stale pipeline cannot
+Stop/Manual OFF request OFF. If OFF cannot be acknowledged, the UI reports
+unknown output and the firmware lease handles loss of commands. Closing a browser tab does **not** stop the background pipeline. Press Stop before
+leaving. All browser tabs share one thread-safe controller and worker. Normal
+process exit requests OFF and waits up to six seconds; forced termination relies
+on the ESP32 lease. Stop the Streamlit server with Ctrl+C in its terminal. A failed/stale pipeline cannot
 keep renewing ON. Tune the 1–10 second interval within the fixed 30-second lease;
 long-running model calls may cause the fan to time out and must be optimized.
 
@@ -105,7 +111,7 @@ live prediction is complete.
 
 ## Validation
 
-Run `python -m unittest discover -s tests -v`. Tests use fake HW modules and a local
+Install requirements, then run `python -m unittest discover -s tests -v`. Tests use fake HW modules and a local
 HTTP server; no commands are sent to a real device. Before use, bench-test boot OFF,
 manual commands, sensor endpoint continuity, Wi-Fi loss, lease expiry, automatic
 integration, stale readings, repeated Start, Stop and restart with the real hardware.

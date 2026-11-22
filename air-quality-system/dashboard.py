@@ -1,75 +1,77 @@
-"""Tkinter dashboard; refreshes worker snapshots without blocking the GUI."""
-import json
-import tkinter as tk
-from tkinter import ttk, messagebox
+"""Streamlit browser dashboard; the worker owns all sensor and fan IO."""
+import streamlit as st
+
+from dashboard_runtime import runtime
+from main import pending_tickets
 
 
-def run_dashboard():
-    from main import Runner, load_config, pending_tickets
-    root = tk.Tk()
-    root.title("Air Quality System")
-    root.geometry("800x600")
-    frame = ttk.Frame(root, padding=16)
-    frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text="Air Quality System", font=("Arial", 20)).pack(anchor="w")
-    ttk.Label(frame, text="Fan status shows acknowledged output, not measured rotation.").pack(anchor="w")
+def send_command(command):
+    try:
+        runtime.command(command)
+        st.session_state.pop("command_error", None)
+    except Exception as exc:
+        st.session_state["command_error"] = str(exc)
+
+
+st.set_page_config(page_title="Air Quality System", page_icon="🌿", layout="wide")
+st.title("Air Quality System")
+st.caption("Live room readings, CO₂ forecasts, and ventilation control")
+
+with st.sidebar:
+    st.subheader("Setup")
+    st.write("Set your ESP32 and InfluxDB settings in config.yaml. Restart the server after editing it.")
     missing = pending_tickets()
     if missing:
-        ttk.Label(frame, text="Automatic mode pending:\n" + "\n".join(missing),
-                  wraplength=750).pack(anchor="w", pady=10)
-    holder = {"runner": None, "closing": False}
-    display = tk.Text(frame, height=20, wrap="word", state="disabled")
+        st.warning("Automatic prediction is waiting for these modules:")
+        for ticket in missing:
+            st.write(ticket)
+    else:
+        st.success("All three HW modules are connected.")
+    st.caption("Manual fan controls are available independently of the HW modules.")
 
-    def show(value):
-        display.configure(state="normal")
-        display.delete("1.0", "end")
-        display.insert("end", value)
-        display.configure(state="disabled")
+controls = st.columns(5)
+for column, label, command in zip(
+    controls,
+    ("Start / Auto", "Stop", "Manual ON", "Manual OFF", "Check ESP32"),
+    ("start", "stop", "on", "off", "check"),
+):
+    column.button(label, key=command, on_click=send_command, args=(command,),
+                  use_container_width=True)
 
-    def action(command):
-        try:
-            if holder["runner"] is None:
-                holder["runner"] = Runner(load_config())
-            holder["runner"].command(command)
-        except Exception as exc:
-            messagebox.showerror("Setup required", str(exc))
+if error := st.session_state.get("command_error"):
+    st.error(error)
 
-    buttons = ttk.Frame(frame)
-    buttons.pack(anchor="w", pady=12)
-    for label, command in (("Start / Auto", "start"), ("Stop", "stop"),
-                           ("Manual ON", "on"), ("Manual OFF", "off"), ("Check ESP32", "check")):
-        ttk.Button(buttons, text=label, command=lambda c=command: action(c)).pack(side="left", padx=3)
-    display.pack(fill="both", expand=True)
-    show("Fill in config.yaml, power the configured ESP32, then check its connection.\n"
-         "Manual fan controls work independently of the three HW modules.")
+st.info("Closing this browser tab keeps the system running. Press Stop to stop control. "
+        "All tabs share the same system.")
 
-    def refresh():
-        if holder["runner"]:
-            show(json.dumps(holder["runner"].snapshot(), indent=2))
-        if not holder["closing"]:
-            root.after(250, refresh)
 
-    def close():
-        holder["closing"] = True
-        for button in buttons.winfo_children():
-            button.configure(state="disabled")
-        runner = holder["runner"]
-        if not runner:
-            root.destroy()
-            return
-        runner.command("close")
-        show("Stopping and requesting fan OFF…")
-        def wait(attempt=0):
-            if not runner.worker.is_alive():
-                root.destroy()
-            elif attempt >= 60:
-                messagebox.showwarning("Shutdown", "Worker did not finish. ESP32 will turn OFF "
-                                       "when its 30-second command lease expires.")
-                root.destroy()
-            else:
-                root.after(100, lambda: wait(attempt + 1))
-        wait()
+@st.fragment(run_every=1)
+def live_status():
+    state = runtime.snapshot()
+    reading = state.get("reading") or {}
+    prediction = state.get("prediction") or {}
+    status = st.columns(2)
+    status[0].metric("Mode", state["mode"])
+    status[1].metric("Fan output", state["fan"])
+    metrics = st.columns(4)
+    metrics[0].metric("Current CO₂", f"{reading['co2']:.0f} ppm" if reading else "—")
+    metrics[1].metric("Temperature", f"{reading['temperature']:.1f} °C" if reading else "—")
+    metrics[2].metric("Humidity", f"{reading['humidity']:.1f}%" if reading else "—")
+    metrics[3].metric("Predicted CO₂", f"{prediction['predicted_co2']:.0f} ppm" if prediction else "—")
+    if reading:
+        st.caption(f"Last successful pipeline reading: {reading['timestamp']}")
+    if prediction:
+        st.caption(f"Forecast horizon: {prediction['horizon_minutes']:g} minutes")
+    st.subheader("Ventilation recommendation")
+    st.write(state.get("recommendation") or "Waiting for a prediction")
+    if state["mode"] == "Error":
+        st.error(state["message"])
+    else:
+        st.write(state["message"])
+    st.caption("Values show the last successful pipeline cycle. Fan output is an "
+               "acknowledged command, not measured fan rotation.")
+    with st.expander("System details"):
+        st.json(state)
 
-    root.protocol("WM_DELETE_WINDOW", close)
-    refresh()
-    root.mainloop()
+
+live_status()
