@@ -15,7 +15,7 @@ included. Existing root firmware and research notebooks are unchanged.
 Each module has `IMPLEMENTED = False`. The owner replaces its placeholders, tests
 it, and sets the flag to True. Start lists all unfinished tickets before attempting
 to construct them. The stubs document required fields/units. The reader returns
-unique, ascending timezone-aware timestamps. Raise `pipeline.WaitingForData` when
+unique, ascending timezone-aware timestamps. The reader raises `pipeline.sensor_reader.WaitingForData` when
 there is insufficient history. The runner requests OFF and retries next cycle.
 Other errors stop automatic mode and request OFF. Configure finite database timeouts;
 slow or stuck HW calls cannot be forcibly interrupted by Python threads.
@@ -33,10 +33,10 @@ provides snapshots, and requests shutdown on normal process exit. It is an inter
 Python object, not an HTTP API. Keeping it in an imported module preserves it across
 Streamlit dashboard reruns without creating one runner per tab.
 
-`pipeline/__init__.py` marks the pipeline as a regular Python package and defines
-`WaitingForData`, the shared exception used by HW-01/HW-02 and the runner. Python
-can support packages without this file, but retaining this small file keeps the
-shared signal independent of the launcher and avoids an extra exceptions module.
+`pipeline/` uses Python's namespace-package support and needs no `__init__.py`.
+The InfluxDB reader owns history-readiness checks. Its placeholder module defines
+`WaitingForData` so the launcher can handle that signal without a separate file.
+The reader implementation remains the HW-01 owner's responsibility.
 
 The tracked [`models/`](models/README.md) folder is ready for your local
 `co2_model.joblib`. The default config already points to that exact location.

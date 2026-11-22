@@ -8,7 +8,8 @@ from threading import Event, Lock, Thread
 from datetime import datetime, timezone
 import time
 
-from pipeline import WaitingForData, sensor_reader, predictor, recommender
+from pipeline import sensor_reader, predictor, recommender
+from pipeline.sensor_reader import WaitingForData
 from pipeline.fan_controller import FanController
 
 ROOT = Path(__file__).resolve().parent

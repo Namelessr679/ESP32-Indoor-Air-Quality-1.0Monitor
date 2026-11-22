@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 from main import Runner, validate_readings, pending_tickets
-from pipeline import WaitingForData
+from pipeline.sensor_reader import WaitingForData
 from pipeline.fan_controller import FanController, FanError
 
 

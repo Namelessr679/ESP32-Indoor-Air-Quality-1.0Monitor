@@ -3,6 +3,10 @@
 IMPLEMENTED = False
 
 
+class WaitingForData(Exception):
+    """The reader has not collected enough usable, fresh history yet."""
+
+
 class SensorReader:
     def __init__(self, config):
         """Receive the influxdb configuration mapping; create the client here."""
@@ -13,7 +17,7 @@ class SensorReader:
 
         timestamp: timezone-aware ISO 8601; co2: ppm; temperature: Celsius;
         humidity: percent. Include the history required by HW-02. Raise
-        pipeline.WaitingForData for insufficient history. Do not invent readings.
+        WaitingForData for insufficient history. Do not invent readings.
         """
         raise NotImplementedError
 

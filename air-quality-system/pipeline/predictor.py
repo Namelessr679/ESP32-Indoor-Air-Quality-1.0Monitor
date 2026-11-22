@@ -12,6 +12,6 @@ class Predictor:
         """Return {'predicted_co2': float, 'horizon_minutes': positive float}.
 
         Reproduce training features/order, preprocessing and sampling cadence.
-        Raise pipeline.WaitingForData until required history exists.
+        HW-01 checks history readiness before these readings arrive.
         """
         raise NotImplementedError
