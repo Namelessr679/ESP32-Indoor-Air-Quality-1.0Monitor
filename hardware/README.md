@@ -3,7 +3,7 @@
 Files are grouped by purpose: `main.py` coordinates the system, `dashboard.py`
 shows it, `pipeline/` holds the model and recommendation handoffs, `control/`
 sends fan commands, `ESP32/` holds the Arduino sketch, and `models/` holds the
-local model. PR #4 still places `influxdb_reader.py` directly in `hardware/`.
+local model. The merged `influxdb_reader.py` lives directly in `hardware/`.
 
 Everything for the live pipeline is under `hardware/`. Start with `launch.bat`
 on Windows; it installs dependencies, creates `config.yaml` from the example,
@@ -14,11 +14,10 @@ from this folder. InfluxDB and the sensor-to-database collector must already run
 ## One-time setup
 
 1. Fill in `config.yaml`: ESP32 address/token and InfluxDB **3 Core** host, token,
-   database and measurement. The defaults match PR #4 (`8181`, `co2db`, `scd41`).
-2. Merge PR #4 or put its unchanged `influxdb_reader.py` directly in this folder.
-   This PR does not copy or rewrite the teammate's reader. Until it is present,
-   the dashboard lists HW-01 as missing. There is no `sensor_reader.py` substitute.
-3. Put the trusted model in `models/co2_model.joblib`. Add the model's exact runtime
+   database and measurement. The defaults match the merged reader (`8181`, `co2db`, `scd41`).
+2. `hardware/influxdb_reader.py` comes from merged PR #4 and is present here.
+   There is no `sensor_reader.py` substitute.
+3. The supplied `models/co2_model.joblib` is included. Add its exact runtime
    dependencies from HW-02 to requirements.txt.
 4. HW-02 fills in `pipeline/predictor.py` and supplies the history requirements. Enter
    `required_history_minutes`, `required_readings`, and `max_gap_seconds` in config.
@@ -26,29 +25,29 @@ from this folder. InfluxDB and the sensor-to-database collector must already run
    Query `history_minutes` must exceed required span so the sliding query can hold
    enough history. Set these based on the model, not by guessing.
 5. HW-03 fills in `pipeline/recommender.py`. HW-02/HW-03 set their IMPLEMENTED flags True
-   only after testing. PR #4's reader needs no such flag, class or new methods.
+   only after testing. The merged reader needs no such flag, class or new methods.
 6. Open `ESP32/ESP32.ino` in Arduino IDE. Set Wi-Fi credentials as before, set a
    verified free FAN_PIN and driver polarity, and set FAN_API_KEY to match config
    (16+ characters). Add ArduinoJson 7.x alongside the original sensor/LCD libraries.
    Compile and flash. GPIO controls a compatible driver; it does not power a motor.
    FAN_PIN=-1 keeps control disabled until configured. Keep credentials out of Git.
 7. Restart the launcher after config changes. Test Check ESP32 and Manual ON/OFF.
-   Manual control works before the reader, model and history settings are ready.
+   Manual control works before the predictor and history settings are ready.
 
-## How main.py uses PR #4
+## How main.py uses the InfluxDB reader
 
 The launcher sets INFLUXDB_HOST, INFLUXDB_TOKEN, INFLUXDB_DATABASE and
 INFLUXDB_MEASUREMENT from YAML **before importing** influxdb_reader. These values
-are read at module import in PR #4. Restart the server after changing configuration;
-there is no second credentials file. Use the reader's default co2/temp_c/rh fields
-unless its configurable-field alias review issue has been fixed.
+are read at module import in the reader. Restart the server after changing configuration;
+there is no second credentials file. The reader aliases configured fields to
+co2/temp_c/rh in both queries.
 
 Each cycle calls `influxdb_reader.get_historical_readings(minutes=...)` directly.
 That function returns a DataFrame and closes its own client. The launcher never
 requires SensorReader, get_recent_readings, close or IMPLEMENTED from that module.
 It doesn't call get_latest_reading, avoiding a redundant database query.
 
-The reader owns database cleaning. PR #4 currently does not check complete history
+The reader owns database cleaning. It does not check complete history
 coverage, so the launcher checks configured span/count/gaps as well as freshness
 before calling HW-02. Empty, stale or incomplete data shows Waiting for data and
 requests fan OFF. Historical rows marked is_stale are kept for lag/rolling features;
@@ -70,10 +69,12 @@ predict(history, *, session_start)
 ```
 
 `history` is the chronological reader DataFrame with `time`, `co2`, `temp_c`, `rh`,
-and `is_stale`. Work on a copy. Match the actual saved model: for the discussed
-co2/temp/rh/elapsed inputs, rename temp_c to temp and calculate elapsed time from
-session_start in the original training units. Use the exact training feature names
-and order, plus any lags, rolling averages, scaling or recursive forecasting used.
+and `is_stale`. Work on a copy. The supplied `rf_direct_5min (1).joblib` is saved
+as `models/co2_model.joblib`. Its pipeline expects 23 features, including
+`session_elapsed_minutes`, and records scikit-learn 1.6.1. HW-02 must confirm
+the complete training feature names, order, elapsed-time origin and units,
+plus any lags, rolling averages and preprocessing. Rename reader columns only
+as required by the saved model.
 Don't assume the .joblib contains only a bare estimator. Don't pass is_stale as a
 model feature unless trained with it. Convert delta targets to absolute CO2 ppm.
 No prediction implementation or invented model output is included in this PR.
@@ -120,13 +121,14 @@ The 30-second lease is checked in loop(); blocking operations can delay checks.
 
 ## Limits and verification
 
-PR #4's separate review fixes remain its owner's work (connection-check cleanup,
-field aliasing, newest-valid-row selection). The launcher cannot repair them.
-Its database calls also need bounded timeouts before unattended use; a stuck query
-can delay Stop processing, although it cannot keep renewing the ESP32 ON lease.
+The merged reader closes the client on a failed connection check and aliases field
+overrides. Its latest-reading query checks at most 20 candidates; this launcher
+uses its historical query instead. Database calls still need bounded timeouts
+before unattended use; a stuck query can delay Stop processing, although it
+cannot keep renewing the ESP32 ON lease.
 
-Local tests cover the unmodified PR #4 reader with a fake database, its integration
+Earlier local tests covered the unmodified reader with a fake database, its integration
 with the runner, Streamlit controls, fan HTTP acknowledgements and Stop behavior.
 Test files are deliberately omitted from this PR. Firmware compilation, physical
 fan tests and Windows launch.bat execution require your board/computer. No fitted
-model, real credentials, Docker setup or HW-02/HW-03 implementation is included.
+real credentials, Docker setup or HW-02/HW-03 implementation is included.

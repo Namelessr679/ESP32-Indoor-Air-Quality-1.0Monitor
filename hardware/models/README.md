@@ -1,6 +1,6 @@
-# Put the CO₂ model here
+# CO₂ prediction model
 
-Copy your final trained model into this folder with this exact filename:
+The supplied prediction artifact is checked in with this filename:
 
 `co2_model.joblib`
 
@@ -19,11 +19,13 @@ Keep the same setting in your local `config.yaml`. Relative paths are resolved
 against the configuration file's directory, not the terminal's working directory.
 The lowercase filename matters on case-sensitive systems.
 
-This README keeps the folder present in Git. There is intentionally no empty
-`.joblib` file: an empty file would not be a valid model. Fitted models are ignored
-by Git; copy yours locally after checking out the branch. No retraining is done by
-the launcher.
+This is the provided `rf_direct_5min (1).joblib`, renamed to match the launcher
+configuration. It is a binary model artifact; do not open it as a text file.
+Only load model files from a trusted source. No retraining is done by the launcher.
 
-The HW-02 owner must implement loading this trusted artifact and any preprocessing,
-and supply its exact dependency versions. Adding the file does not complete HW-02
-or enable automatic prediction while the three HW modules remain placeholders.
+The HW-02 owner must implement loading this artifact and its required feature
+preprocessing, and supply its exact dependency versions. The artifact records
+scikit-learn 1.6.1; its saved pipeline expects 23 features, including
+`session_elapsed_minutes`. Verify the full feature list and training setup with
+the model owner before enabling prediction. Adding the file does not complete
+HW-02 or enable automatic prediction while HW-02 and HW-03 are placeholders.

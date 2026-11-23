@@ -4,3 +4,4 @@ __pycache__/
 config.yaml
 models/*
 !models/README.md
+!models/co2_model.joblib

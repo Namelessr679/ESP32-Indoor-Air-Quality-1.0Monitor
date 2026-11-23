@@ -1,4 +1,4 @@
-"""Single-worker pipeline and Streamlit launcher. Uses the function-based InfluxDB reader from PR #4."""
+"""Single-worker pipeline and Streamlit launcher. Uses the merged InfluxDB reader."""
 import atexit
 import copy
 import math
@@ -21,7 +21,7 @@ class WaitingForData(Exception):
 
 
 def load_reader(config):
-    """Set PR #4's environment before its first import; no changes to that reader."""
+    """Set the reader's environment before its first import."""
     for key, env in (("host", "INFLUXDB_HOST"), ("token", "INFLUXDB_TOKEN"),
                      ("database", "INFLUXDB_DATABASE"), ("measurement", "INFLUXDB_MEASUREMENT")):
         value = config.get(key)
@@ -49,7 +49,7 @@ def history_settings(config):
 
 
 def prepare_readings(history, config):
-    """Adapt PR #4's DataFrame for dashboard/validation; keep raw table for HW-02/03."""
+    """Adapt the reader's DataFrame for dashboard/validation; keep raw table for HW-02/03."""
     if history.empty:
         raise WaitingForData("No readings available")
     rows = [{"timestamp": row.time.isoformat(), "co2": float(row.co2),
@@ -90,8 +90,6 @@ def load_config(path=ROOT / "config.yaml"):
 
 def pending_tickets():
     pending = []
-    if not (ROOT / "influxdb_reader.py").is_file():
-        pending.append("KCO2-HW-01 — add hardware/influxdb_reader.py from PR #4")
     for module, name in ((predictor, "KCO2-HW-02 — Live features and CO₂ prediction"),
                          (recommender, "KCO2-HW-03 — Ventilation recommendation logic")):
         if not module.IMPLEMENTED:
@@ -183,7 +181,7 @@ class Runner:
             return "OFF not acknowledged; ESP32 will request OFF when its 30-second lease is checked"
 
     def _cleanup(self):
-        # PR #4 closes its client inside each function; there is no reader.close().
+        # The reader closes its client inside each function; there is no reader.close().
         self.reader = self.model = self.decide = None
 
     def _start(self):
