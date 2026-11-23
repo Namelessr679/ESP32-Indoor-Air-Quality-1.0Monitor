@@ -1,0 +1,19 @@
+esp32:
+  url: http://esp32.local
+  token: CHANGE_ME
+  timeout_seconds: 2
+pipeline:
+  interval_seconds: 5
+  max_reading_age_seconds: 60
+  model_path: models/co2_model.joblib
+  history_minutes: 30
+  # HW-02 owner supplies these; no model-specific defaults are guessed.
+  # Manual fan controls work before these are filled in.
+  required_history_minutes: null
+  required_readings: null
+  max_gap_seconds: null
+influxdb:
+  host: http://localhost:8181
+  token: YOUR_INFLUXDB_TOKEN
+  database: co2db
+  measurement: scd41

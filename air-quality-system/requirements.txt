@@ -1,3 +1,0 @@
-PyYAML>=6.0.2,<7
-streamlit>=1.37,<2
-# Add the exact model/runtime dependencies supplied by the HW ticket owners.

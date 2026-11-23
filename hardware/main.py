@@ -1,18 +1,70 @@
-"""Single-worker pipeline and Streamlit launcher. HW-01/02/03 remain unimplemented."""
+"""Single-worker pipeline and Streamlit launcher. Uses the function-based InfluxDB reader from PR #4."""
 import atexit
 import copy
 import math
+import importlib
+import os
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from datetime import datetime, timezone
 import time
 
-from pipeline import sensor_reader, predictor, recommender
-from pipeline.sensor_reader import WaitingForData
-from pipeline.fan_controller import FanController
+import predictor
+import recommender
+from fan_controller import FanController
 
 ROOT = Path(__file__).resolve().parent
+
+
+class WaitingForData(Exception):
+    """The reader has not returned enough fresh history for prediction yet."""
+
+
+def load_reader(config):
+    """Set PR #4's environment before its first import; no changes to that reader."""
+    for key, env in (("host", "INFLUXDB_HOST"), ("token", "INFLUXDB_TOKEN"),
+                     ("database", "INFLUXDB_DATABASE"), ("measurement", "INFLUXDB_MEASUREMENT")):
+        value = config.get(key)
+        if not isinstance(value, str) or not value or value.startswith("YOUR_"):
+            raise ValueError(f"Set influxdb.{key} in config.yaml")
+        os.environ[env] = value
+    return importlib.import_module("influxdb_reader")
+
+
+def history_settings(config):
+    """HW-02 owner specifies history requirements; don't guess model requirements."""
+    lookback = config["history_minutes"]
+    span = config.get("required_history_minutes")
+    count = config.get("required_readings")
+    gap = config.get("max_gap_seconds")
+    if type(lookback) is not int or lookback <= 0:
+        raise ValueError("history_minutes must be a positive integer")
+    if not finite_number(span) or not 0 <= span < lookback:
+        raise ValueError("Set required_history_minutes from HW-02 (less than history_minutes)")
+    if type(count) is not int or count < 1:
+        raise ValueError("Set required_readings from HW-02 (positive integer)")
+    if not finite_number(gap) or gap <= 0:
+        raise ValueError("Set max_gap_seconds from HW-02 (positive number)")
+    return lookback, span, count, gap
+
+
+def prepare_readings(history, config):
+    """Adapt PR #4's DataFrame for dashboard/validation; keep raw table for HW-02/03."""
+    if history.empty:
+        raise WaitingForData("No readings available")
+    rows = [{"timestamp": row.time.isoformat(), "co2": float(row.co2),
+             "temperature": float(row.temp_c), "humidity": float(row.rh)}
+            for row in history.itertuples(index=False)]
+    validate_readings(rows, config["max_reading_age_seconds"])
+    _, span, count, gap = history_settings(config)
+    times = [datetime.fromisoformat(row["timestamp"]) for row in rows]
+    if len(rows) < count or (times[-1] - times[0]).total_seconds() < span * 60:
+        raise WaitingForData("Collecting the history required by HW-02")
+    if any((b - a).total_seconds() > gap for a, b in zip(times, times[1:])):
+        raise WaitingForData("Waiting for history without large gaps")
+    # Old rows are required for lag/rolling features; do not filter all is_stale rows.
+    return rows
 
 
 def load_config(path=ROOT / "config.yaml"):
@@ -38,11 +90,14 @@ def load_config(path=ROOT / "config.yaml"):
 
 
 def pending_tickets():
-    return [name for module, name in (
-        (sensor_reader, "KCO2-HW-01 — InfluxDB online sensor reader"),
-        (predictor, "KCO2-HW-02 — Live features and CO₂ prediction"),
-        (recommender, "KCO2-HW-03 — Ventilation recommendation logic"),
-    ) if not module.IMPLEMENTED]
+    pending = []
+    if not (ROOT / "influxdb_reader.py").is_file():
+        pending.append("KCO2-HW-01 — add hardware/influxdb_reader.py from PR #4")
+    for module, name in ((predictor, "KCO2-HW-02 — Live features and CO₂ prediction"),
+                         (recommender, "KCO2-HW-03 — Ventilation recommendation logic")):
+        if not module.IMPLEMENTED:
+            pending.append(name)
+    return pending
 
 
 def finite_number(value):
@@ -80,6 +135,7 @@ class Runner:
         self.fan = fan or FanController(**config["esp32"])
         self.components = components  # Dependency injection for integration tests.
         self.reader = self.model = self.decide = None
+        self.session_start = None
         self.commands = Queue()
         self.cancel = Event()
         self.lock = Lock()
@@ -116,13 +172,11 @@ class Runner:
             self._set_fan(False)
             return "OFF acknowledged"
         except Exception:
-            return "OFF not acknowledged; ESP32 command lease expires within 30 seconds"
+            return "OFF not acknowledged; ESP32 will request OFF when its 30-second lease is checked"
 
     def _cleanup(self):
-        reader, self.reader = self.reader, None
-        self.model = self.decide = None
-        if reader is not None:
-            reader.close()
+        # PR #4 closes its client inside each function; there is no reader.close().
+        self.reader = self.model = self.decide = None
 
     def _start(self):
         if self.snapshot()["mode"] == "Auto":
@@ -138,20 +192,27 @@ class Runner:
             model_path = self.config["pipeline"]["model_path"]
             if not Path(model_path).is_file():
                 raise ValueError("Model file missing; supply the HW-02 artifact")
-            self.reader = sensor_reader.SensorReader(self.config["influxdb"])
+            history_settings(self.config["pipeline"])
+            self.reader = load_reader(self.config["influxdb"])
             self.model = predictor.Predictor(model_path)
             self.decide = recommender.decide
+        if self.session_start is None:
+            self.session_start = datetime.now(timezone.utc)
         self._update(mode="Auto", message="Automatic pipeline started")
 
     def _tick(self):
-        readings = self.reader.get_recent_readings()
-        validate_readings(readings, self.config["pipeline"]["max_reading_age_seconds"])
-        prediction = self.model.predict(readings)
+        history = self.reader.get_historical_readings(
+            minutes=self.config["pipeline"]["history_minutes"])
+        # One live session starts at the first Auto start and survives Stop/Start.
+        # Exclude older records so elapsed time relative to that start isn't negative.
+        history = history.loc[history["time"] >= self.session_start].copy()
+        readings = prepare_readings(history, self.config["pipeline"])
+        prediction = self.model.predict(history, session_start=self.session_start)
         if (not finite_number(prediction["predicted_co2"]) or prediction["predicted_co2"] <= 0
                 or not finite_number(prediction["horizon_minutes"])
                 or prediction["horizon_minutes"] <= 0):
             raise ValueError("Invalid prediction output")
-        decision = self.decide(readings, prediction, self.snapshot()["fan"] == "Commanded ON")
+        decision = self.decide(history, prediction, self.snapshot()["fan"] == "Commanded ON")
         if type(decision["fan_on"]) is not bool or not all(
                 isinstance(decision[k], str) for k in ("recommendation", "reason")):
             raise ValueError("Invalid recommendation output")

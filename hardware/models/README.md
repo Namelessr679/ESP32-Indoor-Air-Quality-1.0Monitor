@@ -6,7 +6,7 @@ Copy your final trained model into this folder with this exact filename:
 
 Its location from the repository root is:
 
-`air-quality-system/models/co2_model.joblib`
+`hardware/models/co2_model.joblib`
 
 The launcher already references it in `config.example.yaml`:
 
