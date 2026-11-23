@@ -1,5 +1,10 @@
 # Hardware launcher
 
+Files are grouped by purpose: `main.py` coordinates the system, `dashboard.py`
+shows it, `pipeline/` holds the model and recommendation handoffs, `control/`
+sends fan commands, `ESP32/` holds the Arduino sketch, and `models/` holds the
+local model. PR #4 still places `influxdb_reader.py` directly in `hardware/`.
+
 Everything for the live pipeline is under `hardware/`. Start with `launch.bat`
 on Windows; it installs dependencies, creates `config.yaml` from the example,
 and opens the Streamlit app at http://localhost:8501. Python 3.10+ is required.
@@ -15,12 +20,12 @@ from this folder. InfluxDB and the sensor-to-database collector must already run
    the dashboard lists HW-01 as missing. There is no `sensor_reader.py` substitute.
 3. Put the trusted model in `models/co2_model.joblib`. Add the model's exact runtime
    dependencies from HW-02 to requirements.txt.
-4. HW-02 fills in `predictor.py` and supplies the history requirements. Enter
+4. HW-02 fills in `pipeline/predictor.py` and supplies the history requirements. Enter
    `required_history_minutes`, `required_readings`, and `max_gap_seconds` in config.
    Required span may be zero for a single-reading model; count must be at least 1.
    Query `history_minutes` must exceed required span so the sliding query can hold
    enough history. Set these based on the model, not by guessing.
-5. HW-03 fills in `recommender.py`. HW-02/HW-03 set their IMPLEMENTED flags True
+5. HW-03 fills in `pipeline/recommender.py`. HW-02/HW-03 set their IMPLEMENTED flags True
    only after testing. PR #4's reader needs no such flag, class or new methods.
 6. Open `ESP32/ESP32.ino` in Arduino IDE. Set Wi-Fi credentials as before, set a
    verified free FAN_PIN and driver polarity, and set FAN_API_KEY to match config
@@ -94,7 +99,7 @@ An automatic OFF decision waits until it expires; Stop and Manual OFF bypass it.
 If data becomes stale, a command fails, or the process disconnects, the system
 requests OFF and the ESP32 lease can also shut it down. The minimum is therefore
 a normal-operation guarantee, not an override of failure handling. It makes decisions only; main.py sends fan_on through
-fan_controller.py and shows recommendation/reason on the dashboard.
+control/fan_controller.py and shows recommendation/reason on the dashboard.
 
 ## Controls and fan protocol
 

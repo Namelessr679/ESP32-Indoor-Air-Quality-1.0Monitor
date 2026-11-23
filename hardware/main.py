@@ -10,9 +10,8 @@ from threading import Event, Lock, Thread
 from datetime import datetime, timezone
 import time
 
-import predictor
-import recommender
-from fan_controller import FanController
+from pipeline import predictor, recommender
+from control.fan_controller import FanController
 
 ROOT = Path(__file__).resolve().parent
 

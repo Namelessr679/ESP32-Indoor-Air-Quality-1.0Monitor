@@ -12,7 +12,7 @@ def decide(history, prediction, previous_fan_state):
     Return ALL three fields on every decision, e.g.:
     {"recommendation": "Turn fan on", "fan_on": True, "reason": "Threshold exceeded", "minimum_run_seconds": 300}.
     Only decide: main.py enforces the minimum after acknowledged ON and sends
-    commands via fan_controller.py. Stop/Manual OFF bypass the minimum.
+    commands via control/fan_controller.py. Stop/Manual OFF bypass the minimum.
     previous_fan_state is the last acknowledged output (bool). The ticket owner
     supplies thresholds/hysteresis. The launcher deliberately supplies no policy.
     """
