@@ -89,6 +89,8 @@ def get_influxdb_client() -> InfluxDBClient3:
             "Missing InfluxDB token. Set the INFLUXDB_TOKEN environment variable."
         )
 
+    client = None
+
     try:
         client = InfluxDBClient3(
             host=INFLUXDB_HOST,
@@ -102,6 +104,13 @@ def get_influxdb_client() -> InfluxDBClient3:
         return client
 
     except Exception as error:
+        # Close the client if it was created.
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
         raise ConnectionError(
             f"Could not connect to InfluxDB: {error}"
         ) from error
@@ -125,12 +134,19 @@ def get_latest_reading() -> dict[str, Any] | None:
     try:
         # Escape quotation marks in the measurement identifier.
         measurement = INFLUXDB_MEASUREMENT.replace('"', '""')
+        co2_field = CO2_FIELD.replace('"', '""')
+        temperature_field = TEMPERATURE_FIELD.replace('"', '""')
+        humidity_field = HUMIDITY_FIELD.replace('"', '""')
 
         query = f"""
-            SELECT time, {CO2_FIELD}, {TEMPERATURE_FIELD}, {HUMIDITY_FIELD}
+            SELECT
+                time,
+                "{co2_field}" AS co2,
+                "{temperature_field}" AS temp_c,
+                "{humidity_field}" AS rh
             FROM "{measurement}"
             ORDER BY time DESC
-            LIMIT 1
+            LIMIT 20
         """
 
         # Execute the query and convert the result to a DataFrame.
@@ -175,9 +191,16 @@ def get_historical_readings(
 
     try:
         measurement = INFLUXDB_MEASUREMENT.replace('"', '""')
+        co2_field = CO2_FIELD.replace('"', '""')
+        temperature_field = TEMPERATURE_FIELD.replace('"', '""')
+        humidity_field = HUMIDITY_FIELD.replace('"', '""')
 
         query = f"""
-            SELECT time, {CO2_FIELD}, {TEMPERATURE_FIELD}, {HUMIDITY_FIELD}
+            SELECT
+                time,
+                "{co2_field}" AS co2,
+                "{temperature_field}" AS temp_c,
+                "{humidity_field}" AS rh
             FROM "{measurement}"
             WHERE time >= now() - INTERVAL '{minutes}' MINUTE
             ORDER BY time ASC
