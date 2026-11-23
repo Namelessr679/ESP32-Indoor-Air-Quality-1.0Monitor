@@ -75,16 +75,25 @@ No prediction implementation or invented model output is included in this PR.
 
 ## HW-03 handoff
 
-Implement `decide(history, prediction, previous_fan_state)`. Return all three:
+Implement `decide(history, prediction, previous_fan_state)`. Return the three
+required fields and an optional minimum run duration in seconds:
 
 ```python
 {"recommendation": "Turn fan on", "fan_on": True,
- "reason": "Predicted CO₂ exceeds the agreed threshold"}
+ "reason": "Predicted CO₂ exceeds the agreed threshold",
+ "minimum_run_seconds": 300}
 ```
 
 history uses the same reader fields. prediction includes absolute CO2 and its
 horizon. previous_fan_state is the last acknowledged command. HW-03 supplies agreed
-thresholds/hysteresis. It makes decisions only; main.py sends fan_on through
+thresholds/hysteresis and minimum run duration. The example 300 seconds is not
+an agreed project threshold. The duration must be a finite nonnegative number;
+when omitted, it defaults to zero. The clock starts only after the first ON
+acknowledgement. Later ON decisions can extend, but never shorten, the minimum.
+An automatic OFF decision waits until it expires; Stop and Manual OFF bypass it.
+If data becomes stale, a command fails, or the process disconnects, the system
+requests OFF and the ESP32 lease can also shut it down. The minimum is therefore
+a normal-operation guarantee, not an override of failure handling. It makes decisions only; main.py sends fan_on through
 fan_controller.py and shows recommendation/reason on the dashboard.
 
 ## Controls and fan protocol

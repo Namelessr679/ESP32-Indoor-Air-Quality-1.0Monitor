@@ -136,6 +136,8 @@ class Runner:
         self.components = components  # Dependency injection for integration tests.
         self.reader = self.model = self.decide = None
         self.session_start = None
+        self.fan_on_since = None  # monotonic clock, set only after ON is acknowledged
+        self.minimum_fan_until = None
         self.commands = Queue()
         self.cancel = Event()
         self.lock = Lock()
@@ -165,6 +167,13 @@ class Runner:
         except Exception:
             self._update(fan="Unknown")
             raise
+        now = time.monotonic()
+        if on:
+            if self.fan_on_since is None:
+                self.fan_on_since = now
+        else:
+            self.fan_on_since = None
+            self.minimum_fan_until = None
         self._update(fan="Commanded ON" if on else "Commanded OFF")
 
     def _off(self):
@@ -216,13 +225,29 @@ class Runner:
         if type(decision["fan_on"]) is not bool or not all(
                 isinstance(decision[k], str) for k in ("recommendation", "reason")):
             raise ValueError("Invalid recommendation output")
+        minimum = decision.get("minimum_run_seconds", 0)
+        if not finite_number(minimum) or minimum < 0:
+            raise ValueError("minimum_run_seconds must be a finite nonnegative number")
         # Reject data that became stale during slow feature/model processing.
         validate_readings(readings, self.config["pipeline"]["max_reading_age_seconds"])
         if self.cancel.is_set():
             return
-        self._set_fan(decision["fan_on"])
+        now = time.monotonic()
+        # Once ON is acknowledged, a later recommendation cannot shorten its run.
+        # Renew ON each cycle so the ESP32's command lease does not expire.
+        keep_running = (self.fan_on_since is not None and
+                        self.minimum_fan_until is not None and
+                        now < self.minimum_fan_until)
+        desired_on = decision["fan_on"] or keep_running
+        self._set_fan(desired_on)
+        if decision["fan_on"] and minimum > 0:
+            self.minimum_fan_until = max(
+                self.minimum_fan_until or 0, self.fan_on_since + minimum)
+        message = decision["reason"]
+        if keep_running and not decision["fan_on"]:
+            message += " (finishing minimum fan run)"
         self._update(reading=readings[-1], prediction=prediction,
-                     recommendation=decision["recommendation"], message=decision["reason"])
+                     recommendation=decision["recommendation"], message=message)
 
     def _run(self):
         next_tick = time.monotonic()
