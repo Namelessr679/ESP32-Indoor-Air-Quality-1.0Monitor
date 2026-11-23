@@ -1,4 +1,5 @@
 #include <Wire.h>
+#include <ArduinoJson.h>  // Fan command JSON (ArduinoJson 7.x)
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
@@ -22,6 +23,51 @@ unsigned long lastWifiPrint = 0;
 
 // ===== Web server (HTTP) =====
 WebServer server(80);
+
+// ===== Fan control: configure these for your board and driver =====
+const int FAN_PIN = -1;  // Set a verified unused output GPIO; -1 disables fan control.
+const bool FAN_ACTIVE_HIGH = true;
+const char* FAN_API_KEY = "CHANGE_ME";  // Match config.yaml; at least 16 characters.
+bool fanOn = false;
+unsigned long lastFanCommandMs = 0;
+const unsigned long FAN_LEASE_MS = 30000;
+
+void applyFan(bool on) {
+  if (FAN_PIN < 0) return;
+  fanOn = on;
+  digitalWrite(FAN_PIN, on == FAN_ACTIVE_HIGH ? HIGH : LOW);
+}
+
+void handleFan() {
+  if (String(FAN_API_KEY).length() < 16 || server.header("X-API-Key") != FAN_API_KEY) {
+    server.send(401, "application/json", "{\"error\":\"unauthorized\"}");
+    return;
+  }
+  if (FAN_PIN < 0) {
+    server.send(503, "application/json", "{\"error\":\"configure FAN_PIN\"}");
+    return;
+  }
+  if (server.method() == HTTP_POST) {
+    JsonDocument command;
+    if (server.arg("plain").length() > 128 ||
+        deserializeJson(command, server.arg("plain")) ||
+        !command["state"].is<const char*>()) {
+      server.send(400, "application/json", "{\"error\":\"invalid state\"}");
+      return;
+    }
+    String state = command["state"].as<const char*>();
+    if (state != "on" && state != "off") {
+      server.send(400, "application/json", "{\"error\":\"use on or off\"}");
+      return;
+    }
+    applyFan(state == "on");
+    lastFanCommandMs = millis();
+  }
+  String reply = String("{\"state\":\"") + (fanOn ? "on" : "off") + "\",\"lease_ms\":30000";
+  if (server.method() == HTTP_POST) reply += ",\"command_applied\":true";
+  server.send(200, "application/json", reply + "}");
+}
+
 
 // latest sensor values to serve on website
 volatile uint16_t lastCo2 = 0;
@@ -140,6 +186,7 @@ void startMDNS() {
 
 void checkWifiStatus() {
   if (WiFi.status() != WL_CONNECTED) {
+    applyFan(false);  // OFF before the existing blocking reconnect attempts.
     if (wifiConnected) {
       Serial.println("[WiFi] LOST CONNECTION");
       wifiConnected = false;
@@ -276,6 +323,11 @@ void updateLCD() {
 
 // -------------------- setup --------------------
 void setup() {
+  if (FAN_PIN >= 0) {
+    digitalWrite(FAN_PIN, FAN_ACTIVE_HIGH ? LOW : HIGH);
+    pinMode(FAN_PIN, OUTPUT);
+    applyFan(false);
+  }
   Serial.begin(115200);
   delay(300);
 
@@ -286,6 +338,10 @@ void setup() {
   setupWifi();
   startMDNS();
 
+  const char* fanHeaders[] = {"X-API-Key"};
+  server.collectHeaders(fanHeaders, 1);
+  server.on("/fan", HTTP_GET, handleFan);
+  server.on("/fan", HTTP_POST, handleFan);
   server.on("/", handleRoot);
   server.on("/json", handleJson);
   server.begin();
@@ -302,6 +358,8 @@ void setup() {
 
 // -------------------- loop --------------------
 void loop() {
+  if (fanOn && (WiFi.status() != WL_CONNECTED ||
+      (unsigned long)(millis() - lastFanCommandMs) >= FAN_LEASE_MS)) applyFan(false);
   server.handleClient();
   checkWifiStatus();
   readSensor();

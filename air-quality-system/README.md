@@ -2,7 +2,7 @@
 
 Streamlit browser dashboard, launcher and ESP32 fan integration. The three HW tickets are intentionally
 **not implemented**. No fitted model or invented prediction/recommendation is
-included. Existing root firmware and research notebooks are unchanged.
+included. The original root ESP32.ino receives a small fan-control addition; research notebooks are unchanged.
 
 ## Ticket handoff
 
@@ -49,7 +49,7 @@ The tracked [`models/`](models/README.md) folder is ready for your local
    also check dependencies so existing installations receive the dashboard upgrade.
    Open http://localhost:8501 if the browser does not open automatically.
 3. Edit `config.yaml`: ESP32 URL and command token, InfluxDB settings, model location.
-   Use a command token at least 16 characters long matching `secrets.h`.
+   Use a command token at least 16 characters long matching `FAN_API_KEY` in `ESP32.ino`.
 4. Close/reopen the app after changing configuration. It loads configuration on
    the first control action, and reloads it on a new app session.
 
@@ -66,31 +66,31 @@ ESP32 must be reachable on the same network (some campus Wi-Fi isolates devices)
 
 ## ESP32 setup (once)
 
-The new `firmware/esp32_controller/esp32_controller.ino` extends the repository's
-online sensor sketch, retaining the LCD, SCD41 and `/json` interface. Flash this
-combined sketch to the existing ESP32; do not run a separate fan-only sketch.
+Use the original repository-root `ESP32.ino`. There is no second firmware sketch
+or secrets header. Sensor reading, LCD, `/json`, and the original Wi-Fi connection
+and reconnection code are retained. Fan support adds a handler to the same server.
 
-1. Copy `secrets.example.h` to `secrets.h` beside the sketch.
-2. Set Wi-Fi credentials and the matching command token (16+ characters).
-3. Set `FAN_PIN` to a confirmed free output GPIO for your exact board, and set
-   `FAN_ACTIVE_HIGH` to the driver's actual polarity. No fan pin is guessed; the
-   sketch deliberately fails compilation until you supply one. Existing LCD pins:
-   4, 5, 18, 19, 23, 25. SCD41 I2C pins: 21 and 22.
-4. Connect the GPIO to a compatible 3.3V-control fan driver. Power the fan with its
-   rated supply through that driver, and share ground where the driver requires it.
-   Do not power a motor from GPIO. Exact wiring depends on your fan/driver and must
-   be confirmed before connecting; provide a hardware pull resistor for OFF during
-   reset as appropriate to the driver polarity.
-5. Install the existing Sensirion SCD4x and LiquidCrystal libraries plus
-   **ArduinoJson 7.x**, select the correct ESP32 board, then compile/upload.
-6. Use Check ESP32 and Manual ON/OFF to bench-test command control and sensor output.
+1. Set your Wi-Fi credentials in the original sketch as before.
+2. Set `FAN_PIN` to a confirmed free output GPIO for your exact board. The default
+   `-1` disables fan control and returns HTTP 503 for authenticated fan requests.
+   LCD pins are 4, 5, 18, 19, 23, 25; SCD41 uses 21 and 22.
+3. Set `FAN_ACTIVE_HIGH` to match your driver and `FAN_API_KEY` to a 16+ character
+   token matching config.yaml. Keep your actual credentials out of commits.
+4. Wire the output to a compatible 3.3V-control fan driver. Power the fan through
+   its rated supply and driver, not GPIO. Confirm wiring and reset-state pull
+   resistor requirements for the actual module before connecting.
+5. Install **ArduinoJson 7.x** alongside the existing sensor/LCD libraries, then
+   compile and upload the original sketch. Its existing Wi-Fi placeholders also
+   need to be filled in before compilation.
+6. Use Check ESP32 and Manual ON/OFF to bench-test control and sensor continuity.
 
-The new sketch drives OFF at boot and on Wi-Fi loss. ON commands expire after
-30 seconds without renewal. Manual ON renews every 5 seconds; Auto renews on each
-successful cycle. Reconnection is nonblocking so it does not deliberately stall
-the watchdog. Acknowledgement describes the GPIO command, not measured rotation.
-Firmware must still be compiled with your board/libraries and tested on hardware;
-this environment cannot verify physical wiring, timing or fan motion.
+The fan is set OFF at boot, before Wi-Fi reconnect attempts, and when commands
+expire. Manual ON renews every 5 seconds; Auto renews on each successful cycle.
+The 30-second expiry is checked by the Arduino loop, not a real-time interrupt;
+blocking operations can delay a check. The existing blocking reconnect procedure
+is preserved, with an OFF command added at its entry. Acknowledgements report
+commanded output, not measured rotation. Compile and bench-test on your board;
+physical wiring, fan motion and firmware timing have not been verified here.
 
 ## Command protocol
 
@@ -100,7 +100,7 @@ the internet. Both endpoints require `X-API-Key` matching FAN_API_KEY.
 - `GET /fan` -> `{"state":"off","lease_ms":30000}`
 - `POST /fan`, JSON `{"state":"on"}` or `{"state":"off"}`
 - Success -> `{"command_applied":true,"state":"on"}` (or `off`).
-- Invalid body/state -> HTTP 400; wrong/missing token -> HTTP 401.
+- Invalid body/state -> HTTP 400; wrong/missing token -> HTTP 401; unset fan pin -> HTTP 503.
 
 Repeated state commands are idempotent and renew the lease. The Python client uses
 bounded requests, refuses redirects, bypasses HTTP proxies for local traffic and
@@ -121,7 +121,7 @@ on the ESP32 lease. Stop the Streamlit server with Ctrl+C in its terminal. A fai
 keep renewing ON. Tune the 1–10 second interval within the fixed 30-second lease;
 long-running model calls may cause the fan to time out and must be optimized.
 
-`config.yaml`, secrets.h, venvs and fitted models are ignored by git. The three
+`config.yaml`, venvs and fitted models are ignored by git. The three
 modules are intentionally placeholders, so successful automated tests do not mean
 live prediction is complete.
 

@@ -2,6 +2,5 @@
 __pycache__/
 *.pyc
 config.yaml
-firmware/esp32_controller/secrets.h
 models/*
 !models/README.md

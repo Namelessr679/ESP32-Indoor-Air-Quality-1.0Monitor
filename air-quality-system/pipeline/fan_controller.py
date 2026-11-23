@@ -17,7 +17,7 @@ class FanController:
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
             raise ValueError("esp32.url must not contain a path, query or fragment")
         if not isinstance(token, str) or len(token) < 16 or token == "CHANGE_ME":
-            raise ValueError("Set a matching 16+ character ESP32 token in config.yaml and secrets.h")
+            raise ValueError("Set a matching 16+ character ESP32 token in config.yaml and ESP32.ino")
         if not 0 < timeout_seconds <= 5:
             raise ValueError("ESP32 timeout must be between 0 and 5 seconds")
         self.url, self.token, self.timeout = url.rstrip("/"), token, timeout_seconds
