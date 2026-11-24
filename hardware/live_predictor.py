@@ -317,18 +317,26 @@ class Predictor:
 
         artifact = joblib.load(self.model_path)
 
-        if not isinstance(artifact, dict):
+        # Support a saved scikit-learn pipeline.
+        if hasattr(artifact, "named_steps"):
+            components = artifact.named_steps
+
+        # Support a dictionary containing model components.
+        elif isinstance(artifact, dict):
+            components = artifact
+
+        else:
             raise ValueError(
-                "Expected a model artifact containing model and preprocessor."
+                "Unsupported trained model artifact format."
             )
 
-        if "model" not in artifact or "preprocessor" not in artifact:
+        if "model" not in components or "preprocessor" not in components:
             raise ValueError(
                 "Model artifact must contain 'model' and 'preprocessor'."
             )
 
-        self.model = artifact["model"]
-        self.preprocessor = artifact["preprocessor"]
+        self.model = components["model"]
+        self.preprocessor = components["preprocessor"]
 
     def predict(self, history, *, session_start):
         """Predict future CO2 using historical sensor readings.
