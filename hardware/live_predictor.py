@@ -129,14 +129,9 @@ def validate_history(history, session_start):
             "Cannot predict: latest sensor timestamp is in the future."
         )
 
-    # Check gaps between consecutive sensor readings.
-    time_gaps = cleaned["time"].diff().dt.total_seconds()
-
-    if (time_gaps > MAX_SEQUENCE_GAP_SECONDS).any():
-        raise ValueError(
-            "Sensor history contains gaps exceeding 30 seconds."
-        )
-
+    # Older gaps do not necessarily affect the latest prediction.
+    # Required lag readings, rolling statistics, and slopes
+    # are validated during feature generation.
     # Require enough history for the 10-minute lag features.
     history_span = (
         cleaned["time"].iloc[-1] - cleaned["time"].iloc[0]
@@ -390,9 +385,15 @@ class Predictor:
             initial_co2=self.initial_co2,
         )
 
-        if features.isna().any().any():
+        # Validate the features required for the latest prediction.
+        invalid_features = features.columns[
+            ~np.isfinite(features.to_numpy(dtype=float)).all(axis=0)
+        ].tolist()
+
+        if invalid_features:
             raise ValueError(
-                "Cannot predict: required model features are missing."
+                "Cannot predict: required model features are "
+                f"missing or invalid: {invalid_features}"
             )
 
         # Apply the fitted training preprocessor.
