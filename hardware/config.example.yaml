@@ -1,0 +1,10 @@
+esp32:
+  url: http://esp32.local
+  token: CHANGE_ME
+  timeout_seconds: 2
+influxdb:
+  host: http://localhost:8181
+  token: YOUR_INFLUXDB_TOKEN
+  database: co2db
+  measurement: scd41
+  history_minutes: 30

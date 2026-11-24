@@ -1,0 +1,4 @@
+PyYAML>=6.0.2,<7
+streamlit>=1.37,<2
+pandas>=2.2,<3
+influxdb3-python>=0.12,<1

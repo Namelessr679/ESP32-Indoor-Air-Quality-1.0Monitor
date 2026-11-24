@@ -77,7 +77,9 @@ Install the following libraries via the **Arduino Library Manager**:
 
 ## Setup
 
-1. Open `ESP32.ino` in the **Arduino IDE** (or VS Code with the Arduino extension).
+For the Streamlit launcher and fan control, see [`hardware/README.md`](hardware/README.md).
+
+1. Open [`hardware/ESP32/ESP32.ino`](hardware/ESP32/ESP32.ino) in the **Arduino IDE** (or VS Code with the Arduino extension).
 2. Set your Wi-Fi credentials in the source file:
    ```cpp
    const char* ssid     = "YOUR_SSID";
@@ -119,3 +121,4 @@ This project is part of **Edge-Based Indoor Air Quality Prediction and Ventilati
 ## License
 
 MIT License — feel free to use, modify, and distribute.
+
