@@ -1,6 +1,6 @@
 
 """
-InfluxDB reader for the CO2 project.
+InfluxDB reader for the CO2 pipeline.
 
 Reads CO2, temperature, and relative humidity measurements
 from InfluxDB 3.
