@@ -4,6 +4,7 @@ import atexit
 import importlib
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
@@ -45,11 +46,16 @@ def read_history():
 class Controller:
     def __init__(self):
         self.fan = None
+        self.reader = None
+        self.predictor = None
+        self.auto_start = None
+        self.session_start = None
+        self.minimum_until = None
         self.commands = Queue()
         self.cancel = Event()
         self.lock = Lock()
         self.state = {"mode": "Stopped", "message": "Configure config.yaml, then check ESP32.",
-                      "fan": "Unknown"}
+                      "fan": "Unknown", "prediction": None, "recommendation": None}
         self.worker = None
 
     def snapshot(self):
@@ -61,7 +67,7 @@ class Controller:
             self.state.update(values)
 
     def command(self, name):
-        if name not in ("stop", "on", "off", "check", "close"):
+        if name not in ("auto", "stop", "on", "off", "check", "close"):
             raise ValueError("Unknown command")
         with self.lock:
             if self.worker is None:
@@ -88,11 +94,80 @@ class Controller:
         self._update(fan="Commanded ON" if on else "Commanded OFF")
 
     def _off(self):
+        self.minimum_until = None
         try:
             self._set_fan(False)
             return "OFF acknowledged"
         except Exception:
             return "OFF not acknowledged; ESP32 will request OFF when its 30-second lease is checked"
+
+    def _start_auto(self):
+        from pipeline.predictor import Predictor
+
+        config = load_config()
+        model_path = ROOT / config.get("pipeline", {}).get("model_path", "models/co2_model.joblib")
+        if not model_path.is_file():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        self.reader = load_reader(config["influxdb"])
+        self.predictor = Predictor(model_path)
+        self.auto_start = datetime.now(timezone.utc)
+        self.session_start = None
+        self._update(mode="Auto", message="Collecting sensor history", prediction=None,
+                     recommendation=None)
+
+    def _tick_auto(self):
+        config = load_config()["influxdb"]
+        try:
+            history = self.reader.get_historical_readings(minutes=config.get("history_minutes", 30))
+        except Exception as exc:
+            self._update(message=f"Sensor read failed: {exc}", prediction=None,
+                         recommendation=None)
+            self._off()
+            return
+        if history.empty:
+            self._update(message="Waiting for sensor readings", prediction=None,
+                         recommendation=None)
+            self._off()
+            return
+        if self.session_start is None:
+            new_readings = history.loc[history["time"] >= self.auto_start]
+            if new_readings.empty:
+                self._update(message="Waiting for a new sensor reading")
+                self._off()
+                return
+            self.session_start = new_readings["time"].iloc[0]
+            self.predictor.start_session(new_readings.iloc[0])
+        history = history.loc[history["time"] >= self.session_start]
+        try:
+            prediction = self.predictor.predict(history, session_start=self.session_start)
+        except ValueError as exc:
+            self._update(message=str(exc), prediction=None, recommendation=None)
+            self._off()
+            return
+        from pipeline.recommender import decide
+
+        decision = decide(history, prediction)
+        if decision["fan_on"] is None:
+            self._update(message=decision["reason"], prediction=prediction,
+                         recommendation=None)
+            self._off()
+            return
+        now = time.monotonic()
+        keep_running = self.minimum_until is not None and now < self.minimum_until
+        desired_on = decision["fan_on"] or keep_running
+        if self.cancel.is_set():
+            return
+        was_on = self.snapshot()["fan"] == "Commanded ON"
+        self._set_fan(desired_on)
+        if desired_on and not was_on:
+            self.minimum_until = time.monotonic() + decision["minimum_run_seconds"]
+        if not desired_on:
+            self.minimum_until = None
+        message = decision["reason"]
+        if keep_running and not decision["fan_on"]:
+            message += " Finishing the 10-minute minimum run."
+        self._update(message=message, prediction=prediction,
+                     recommendation=decision["recommendation"])
 
     def _run(self):
         next_refresh = None
@@ -104,24 +179,38 @@ class Controller:
             try:
                 if command in ("stop", "off", "close"):
                     next_refresh = None
-                    self._update(mode="Stopped", message=self._off())
+                    self.reader = self.predictor = None
+                    self._update(mode="Stopped", message=self._off(), prediction=None,
+                                 recommendation=None)
                     if command == "close":
                         return
                 elif command == "on":
+                    self.reader = self.predictor = None
+                    self.minimum_until = None
                     self._set_fan(True)
-                    self._update(mode="Manual", message="Manual ON; refreshed every 5 seconds")
+                    self._update(mode="Manual", message="Manual ON; refreshed every 5 seconds",
+                                 prediction=None, recommendation=None)
                     next_refresh = time.monotonic() + 5
+                elif command == "auto":
+                    if self.snapshot()["mode"] != "Auto":
+                        self._off()
+                        self._start_auto()
+                    next_refresh = time.monotonic()
                 elif command == "check":
                     result = self.fan.status()
                     self._update(message="ESP32 connected", fan="Commanded " + result["state"].upper())
                 if self.commands.empty():
                     self.cancel.clear()
                 if next_refresh is not None and time.monotonic() >= next_refresh and not self.cancel.is_set():
-                    self._set_fan(True)
+                    if self.snapshot()["mode"] == "Auto":
+                        self._tick_auto()
+                    else:
+                        self._set_fan(True)
                     next_refresh = time.monotonic() + 5
             except Exception as exc:
                 next_refresh = None
-                self._update(mode="Error", message=f"{exc}. {self._off()}")
+                self._update(mode="Error", message=f"{exc}. {self._off()}",
+                             prediction=None, recommendation=None)
 
 
 runtime = Controller()
