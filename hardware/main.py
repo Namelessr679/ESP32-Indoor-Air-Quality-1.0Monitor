@@ -2,6 +2,7 @@
 
 import atexit
 import importlib
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from threading import Event, Lock, Thread
 
 from pipeline.fan_controller import FanController
 
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 ROOT = Path(__file__).resolve().parent
 
