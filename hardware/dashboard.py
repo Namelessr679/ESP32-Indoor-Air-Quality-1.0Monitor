@@ -7,7 +7,7 @@ from main import read_history, runtime
 def send_command(command):
     try:
         runtime.command(command)
-        if command == "stop":
+        if command in ("stop", "auto"):
             st.session_state["manual_fan"] = False
         st.session_state.pop("command_error", None)
     except Exception as exc:
@@ -28,11 +28,11 @@ if "manual_fan" not in st.session_state:
 st.toggle("Manual fan", key="manual_fan", on_change=set_manual_fan)
 st.markdown(":green[**ON**]" if st.session_state["manual_fan"] else ":red[**OFF**]")
 
-controls = st.columns(2)
+controls = st.columns(3)
 for column, label, command in zip(
     controls,
-    ("Stop", "Check ESP32"),
-    ("stop", "check"),
+    ("Auto", "Stop", "Check ESP32"),
+    ("auto", "stop", "check"),
 ):
     column.button(label, key=command, on_click=send_command, args=(command,),
                   use_container_width=True)
@@ -50,6 +50,10 @@ def live_status():
     status = st.columns(2)
     status[0].metric("Mode", state["mode"])
     status[1].metric("Fan output", state["fan"])
+    if prediction := state.get("prediction"):
+        st.metric("Predicted CO₂ in five minutes", f"{prediction['predicted_co2']:.0f} ppm")
+    if state.get("recommendation"):
+        st.write(f"Recommendation: {state['recommendation']}")
     if state["mode"] == "Error":
         st.error(state["message"])
     else:

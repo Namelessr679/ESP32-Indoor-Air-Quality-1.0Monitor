@@ -5,3 +5,7 @@ config.yaml
 models/*
 !models/README.md
 !models/co2_model.joblib
+
+.venv-test/
+tests/arduino-build/
+ESP32/secrets.h

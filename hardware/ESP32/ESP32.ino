@@ -7,11 +7,17 @@
 #include <LiquidCrystal.h>
 
 // LCD: RS, E, D4, D5, D6, D7
-LiquidCrystal lcd(4, 5, 18, 19, 23, 25);
+// Move LCD D7 from GPIO 25 to GPIO 27 before connecting the fan.
+LiquidCrystal lcd(4, 5, 18, 19, 23, 27);
 
 // ===== WiFi setting =====
-const char* ssid = // Your hotspot ID;
-const char* password = // Your hotspot password;
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+const char* ssid = "YOUR_SSID";
+const char* password = "YOUR_PASSWORD";
+const char* FAN_API_KEY = "CHANGE_ME";
+#endif
 
 bool wifiConnected = false;
 
@@ -25,26 +31,25 @@ unsigned long lastWifiPrint = 0;
 WebServer server(80);
 
 // ===== Fan control: configure these for your board and driver =====
-const int FAN_PIN = -1;  // Set a verified unused output GPIO; -1 disables fan control.
-const bool FAN_ACTIVE_HIGH = true;
-const char* FAN_API_KEY = "CHANGE_ME";  // Match config.yaml; at least 16 characters.
+const int FAN_INA_PIN = 25;
+const int FAN_INB_PIN = 26;
 bool fanOn = false;
 unsigned long lastFanCommandMs = 0;
 const unsigned long FAN_LEASE_MS = 30000;
 
-void applyFan(bool on) {
-  if (FAN_PIN < 0) return;
+void applyFan(bool on, const char* reason) {
+  // INB stays LOW for both tested states; never reverse the motor.
+  digitalWrite(FAN_INB_PIN, LOW);
+  digitalWrite(FAN_INA_PIN, on ? HIGH : LOW);
+  if (fanOn != on) {
+    Serial.printf("[Fan] %s (%s)\n", on ? "ON" : "OFF", reason);
+  }
   fanOn = on;
-  digitalWrite(FAN_PIN, on == FAN_ACTIVE_HIGH ? HIGH : LOW);
 }
 
 void handleFan() {
   if (String(FAN_API_KEY).length() < 16 || server.header("X-API-Key") != FAN_API_KEY) {
     server.send(401, "application/json", "{\"error\":\"unauthorized\"}");
-    return;
-  }
-  if (FAN_PIN < 0) {
-    server.send(503, "application/json", "{\"error\":\"configure FAN_PIN\"}");
     return;
   }
   if (server.method() == HTTP_POST) {
@@ -60,7 +65,7 @@ void handleFan() {
       server.send(400, "application/json", "{\"error\":\"use on or off\"}");
       return;
     }
-    applyFan(state == "on");
+    applyFan(state == "on", "HTTP command");
     lastFanCommandMs = millis();
   }
   String reply = String("{\"state\":\"") + (fanOn ? "on" : "off") + "\",\"lease_ms\":30000";
@@ -74,6 +79,9 @@ volatile uint16_t lastCo2 = 0;
 volatile float lastT = 0.0f;
 volatile float lastRh = 0.0f;
 volatile unsigned long lastSensorMs = 0;
+unsigned long lastSensorCheckMs = 0;
+unsigned long lastSensorWaitLogMs = 0;
+const unsigned long SENSOR_STALE_MS = 15000;
 
 // -------------------- Web handlers --------------------
 String htmlPage() {
@@ -98,137 +106,54 @@ void handleRoot() {
 }
 
 void handleJson() {
+  if (lastSensorMs == 0 || (unsigned long)(millis() - lastSensorMs) > SENSOR_STALE_MS) {
+    server.send(503, "application/json", "{\"error\":\"sensor reading unavailable or stale\"}");
+    return;
+  }
   String json = "{";
   json += "\"co2\":" + String(lastCo2) + ",";
   json += "\"temp_c\":" + String(lastT, 2) + ",";
   json += "\"rh\":" + String(lastRh, 2) + ",";
   json += "\"device_ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"mdns\":\"esp32.local\",";
+  json += "\"sensor_age_ms\":" + String(millis() - lastSensorMs) + ",";
   json += "\"time_ms\":" + String(millis());
   json += "}";
   server.send(200, "application/json", json);
 }
 
 // -------------------- WiFi helpers --------------------
+unsigned long lastWifiAttemptMs = 0;
+const unsigned long WIFI_RETRY_MS = 10000;
+
 void setupWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.disconnect(true);
-  delay(200);
-
-  Serial.println("\n[WiFi] Scanning networks...");
-  int n = WiFi.scanNetworks();
-  if (n <= 0) {
-    Serial.println("[WiFi] No networks found");
-  } else {
-    for (int i = 0; i < n; i++) {
-      Serial.print("  - ");
-      Serial.print(WiFi.SSID(i));
-      Serial.print(" (RSSI ");
-      Serial.print(WiFi.RSSI(i));
-      Serial.println(")");
-    }
-  }
-
-  Serial.print("\n[WiFi] Connecting to: ");
-  Serial.println(ssid);
-
-  lcd.clear();
-  lcd.print("WiFi Connecting");
-
   WiFi.begin(ssid, password);
-
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    Serial.print(" status=");
-    Serial.println((int)WiFi.status());
-
-    if (millis() - start > 20000) {
-      Serial.println("\n[WiFi] FAILED (timeout)");
-      Serial.print("[WiFi] Final status=");
-      Serial.println((int)WiFi.status());
-
-      wifiConnected = false;
-
-      lcd.clear();
-      lcd.print("WiFi Failed");
-      return;
-    }
-  }
-
-  wifiConnected = true;
-
-  Serial.println("\n[WiFi] CONNECTED ✅");
-  Serial.print("[WiFi] DHCP IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.print("[WiFi] Gateway: ");
-  Serial.println(WiFi.gatewayIP());
-  Serial.print("[WiFi] RSSI: ");
-  Serial.println(WiFi.RSSI());
-
-  lcd.clear();
-  lcd.print("WiFi OK");
-  lcd.setCursor(0, 1);
-  lcd.print(WiFi.localIP());
-}
-
-void startMDNS() {
-  if (WiFi.status() == WL_CONNECTED) {
-    if (MDNS.begin("esp32")) {
-      Serial.println("[mDNS] Started: http://esp32.local");
-    } else {
-      Serial.println("[mDNS] Failed to start");
-    }
-  }
+  lastWifiAttemptMs = millis();
+  Serial.println("[WiFi] Connecting asynchronously");
 }
 
 void checkWifiStatus() {
-  if (WiFi.status() != WL_CONNECTED) {
-    applyFan(false);  // OFF before the existing blocking reconnect attempts.
-    if (wifiConnected) {
-      Serial.println("[WiFi] LOST CONNECTION");
-      wifiConnected = false;
-
-      lcd.clear();
-      lcd.print("WiFi Lost");
-    }
-
-    WiFi.disconnect(true);
-    delay(500);
-
-    Serial.println("[WiFi] Reconnecting...");
-    WiFi.begin(ssid, password);
-
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
-      delay(500);
-      Serial.print("#");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiConnected) {
       wifiConnected = true;
-      Serial.println("\n[WiFi] RECONNECTED ✅");
-      Serial.print("[WiFi] DHCP IP: ");
+      Serial.print("[WiFi] Connected: ");
       Serial.println(WiFi.localIP());
-      Serial.print("[WiFi] Gateway: ");
-      Serial.println(WiFi.gatewayIP());
-
       MDNS.end();
-      if (!MDNS.begin("esp32")) {
-        Serial.println("[mDNS] Restart failed");
-      } else {
-        Serial.println("[mDNS] Restarted: http://esp32.local");
-      }
-
-      lcd.clear();
-      lcd.print("WiFi Reconnected");
-      lcd.setCursor(0, 1);
-      lcd.print(WiFi.localIP());
-    } else {
-      Serial.println("\n[WiFi] Reconnect failed");
+      if (!MDNS.begin("esp32")) Serial.println("[mDNS] Start failed");
     }
+    return;
+  }
+  applyFan(false, "WiFi disconnected");
+  if (wifiConnected) {
+    wifiConnected = false;
+    Serial.println("[WiFi] Lost connection");
+  }
+  if ((unsigned long)(millis() - lastWifiAttemptMs) >= WIFI_RETRY_MS) {
+    lastWifiAttemptMs = millis();
+    Serial.println("[WiFi] Retrying connection");
+    WiFi.reconnect();
   }
 }
 
@@ -261,6 +186,9 @@ void setupSensor() {
 
 // -------------------- Read sensor --------------------
 void readSensor() {
+  // SCD41 updates about every five seconds; avoid hammering I2C on every loop.
+  if ((unsigned long)(millis() - lastSensorCheckMs) < 1000) return;
+  lastSensorCheckMs = millis();
   uint16_t error;
   char errorMessage[256];
 
@@ -273,7 +201,13 @@ void readSensor() {
     return;
   }
 
-  if (!isDataReady) return;
+  if (!isDataReady) {
+    if ((unsigned long)(millis() - lastSensorWaitLogMs) >= SENSOR_STALE_MS) {
+      lastSensorWaitLogMs = millis();
+      Serial.println("[SCD41] Waiting for a new measurement");
+    }
+    return;
+  }
 
   uint16_t co2 = 0;
   float temperature = 0.0f;
@@ -287,7 +221,10 @@ void readSensor() {
     return;
   }
 
-  if (co2 == 0) return;
+  if (co2 == 0) {
+    Serial.println("[SCD41] Discarded zero CO2 measurement");
+    return;
+  }
 
   lastCo2 = co2;
   lastT = temperature;
@@ -323,20 +260,19 @@ void updateLCD() {
 
 // -------------------- setup --------------------
 void setup() {
-  if (FAN_PIN >= 0) {
-    digitalWrite(FAN_PIN, FAN_ACTIVE_HIGH ? LOW : HIGH);
-    pinMode(FAN_PIN, OUTPUT);
-    applyFan(false);
-  }
+  // Set output latches LOW before enabling outputs, before any startup work.
+  digitalWrite(FAN_INA_PIN, LOW);
+  digitalWrite(FAN_INB_PIN, LOW);
+  pinMode(FAN_INA_PIN, OUTPUT);
+  pinMode(FAN_INB_PIN, OUTPUT);
   Serial.begin(115200);
-  delay(300);
+  Serial.println("[Fan] OFF (startup)");
 
   lcd.begin(16, 2);
   lcd.clear();
   lcd.print("Booting...");
 
   setupWifi();
-  startMDNS();
 
   const char* fanHeaders[] = {"X-API-Key"};
   server.collectHeaders(fanHeaders, 1);
@@ -358,10 +294,11 @@ void setup() {
 
 // -------------------- loop --------------------
 void loop() {
-  if (fanOn && (WiFi.status() != WL_CONNECTED ||
-      (unsigned long)(millis() - lastFanCommandMs) >= FAN_LEASE_MS)) applyFan(false);
-  server.handleClient();
+  if (fanOn && (unsigned long)(millis() - lastFanCommandMs) >= FAN_LEASE_MS) {
+    applyFan(false, "command lease expired");
+  }
   checkWifiStatus();
+  if (wifiConnected) server.handleClient();
   readSensor();
   updateLCD();
 

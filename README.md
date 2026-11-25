@@ -51,7 +51,9 @@ Read the [notebook README](KC_CO2_Modular_Notebooks/README.md) for the complete 
 | D4 | 18 |
 | D5 | 19 |
 | D6 | 23 |
-| D7 | 25 |
+| D7 | 27 |
+
+**Fan integration:** move LCD D7 from GPIO 25 to GPIO 27. The fan uses GPIO 25 (INA) and GPIO 26 (INB); see [wiring and pipeline tests](hardware/README.md#fan-control). This pin table is for `hardware/ESP32/ESP32.ino`; the separate offline logger retains its original wiring.
 
 #### SCD41 (I²C)
 | SCD41 Pin | ESP32 |
@@ -68,6 +70,7 @@ Install the following libraries via the **Arduino Library Manager**:
 | Library | Purpose |
 |---------|---------|
 | `SensirionI2cScd4x` | SCD41 sensor driver |
+| `ArduinoJson` 7.x | Fan command JSON parsing |
 | `LiquidCrystal` | 16×2 LCD driver |
 | `WiFi` | Built-in ESP32 Wi-Fi |
 | `WebServer` | Built-in HTTP server |

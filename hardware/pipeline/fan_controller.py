@@ -1,7 +1,11 @@
 """Bounded HTTP calls to the ESP32 fan endpoint."""
 import json
+import logging
 import urllib.request
 from urllib.parse import urlsplit
+
+
+logger = logging.getLogger(__name__)
 
 
 class FanController:
@@ -13,6 +17,7 @@ class FanController:
             raise ValueError("Set a matching 16+ character ESP32 token in config.yaml and ESP32.ino")
         if not 0 < timeout_seconds <= 5:
             raise ValueError("ESP32 timeout must be between 0 and 5 seconds")
+        self.last_acknowledged_state = None
         self.url, self.token, self.timeout = url.rstrip("/"), token, timeout_seconds
         # Local device traffic should not pass through a system HTTP proxy.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
@@ -29,9 +34,17 @@ class FanController:
 
     def set_state(self, fan_on):
         state = "on" if fan_on else "off"
-        result = self._request("/fan", state)
-        if result.get("command_applied") is not True or result.get("state") != state:
-            raise RuntimeError("ESP32 did not acknowledge the requested state")
+        try:
+            result = self._request("/fan", state)
+            if result.get("command_applied") is not True or result.get("state") != state:
+                raise RuntimeError("ESP32 did not acknowledge the requested state")
+        except Exception:
+            self.last_acknowledged_state = None
+            logger.warning("Fan %s command failed; output state unknown", state.upper())
+            raise
+        if self.last_acknowledged_state != state:
+            logger.info("Fan %s acknowledged", state.upper())
+        self.last_acknowledged_state = state
         return result
 
     def status(self):

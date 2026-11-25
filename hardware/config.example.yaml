@@ -8,3 +8,5 @@ influxdb:
   database: co2db
   measurement: scd41
   history_minutes: 30
+pipeline:
+  model_path: models/co2_model.joblib
